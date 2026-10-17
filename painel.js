@@ -34,7 +34,7 @@ const CAMADAS = [
   ["lula_pct", "Lula (% dos votos nominais)"],
   ["flavio_pct", "Flávio Bolsonaro (% dos votos nominais)"],
   ["renda_resp", "Renda do responsável"],
-  ["esgoto_adequado_pct", "Esgoto adequado"],
+  ["saneamento_adequado_pct", "Saneamento adequado"],
   ["agua_rede_pct", "Água da rede geral"],
   ["alfabetizacao_pct", "Alfabetização"],
   ["pavimentacao_pct", "Rua pavimentada"],
@@ -328,8 +328,10 @@ function cardPoliticas(r) {
   if (nivel !== "municipio") itens = alvo.plano.map((c) => ({ ...c, ter: `${nivel === "zona" ? "Na" : "Em"} ${nomeAlvo}, ${c.territorio}` }));
   else {
     const cont = {};
+    let seg = null;  // seguranca: dado municipal, igual em todas as areas
     for (const x of m.bairros) {
       for (const c of x.plano) {
+        if (c.id === "seguranca") { seg ??= c; continue; }
         const t = (cont[c.id] ??= { pop: 0, nomes: [] });
         t.pop += x.censo.pop;
         t.nomes.push(x.nome);
@@ -337,6 +339,7 @@ function cardPoliticas(r) {
     }
     itens = Object.entries(cont).sort((a, c) => c[1].pop - a[1].pop).slice(0, 5).map(([id, v]) => ({
       ...planoIdx[id], ter: `Prioritário em ${v.nomes.length} bairro(s) ou localidade(s) que somam ${fmtInt(v.pop)} moradores: ${v.nomes.slice(0, 6).join(", ")}${v.nomes.length > 6 ? "…" : ""}.` }));
+    if (seg) itens.push({ ...seg, ter: `Em ${m.nome}, ${seg.territorio}` });
   }
   const plano = el("ul", { class: "plano" }, ...itens.map((c) => el("li", {},
     el("b", {}, `${c.tema} · p. ${c.pagina}`),
@@ -344,7 +347,10 @@ function cardPoliticas(r) {
     el("span", { class: "meta" }, el("strong", {}, "Meta e escala: "), c.meta),
     el("span", { class: "ter" }, c.ter))));
 
-  const pols = m.politicas.map((i) => meta.politicas[i]);
+  // programas so urbanos (ex.: Periferia Viva) ou so rurais (ex.: Pronaf) ficam fora da outra zona
+  const zonaAlvo = nivel === "municipio" ? null : alvo.rural ? "rural" : "urbana";
+  const pols = m.politicas.map((i) => meta.politicas[i])
+    .filter((p) => !zonaAlvo || !p.zona || p.zona === "ambas" || p.zona === zonaAlvo);
   const ids = new Set(nivel === "localidade" ? [alvo.id] : r.irmas.map((u) => u.id));
   const naArea = nivel === "municipio" ? [] : pols.filter((p) => p.bairros.some((b) => ids.has(b)));
   const locais = pols.filter((p) => !p.muns.includes("*") && !naArea.includes(p));
@@ -358,7 +364,9 @@ function cardPoliticas(r) {
   const item = (p, marca) => {
     const links = p.links ?? (p.url ? [{ rotulo: p.fonte || "fonte", href: p.url, situacao: "ok" }] : []);
     const usaveis = links.filter((l) => l.situacao !== "indisponivel");
+    const soZona = !zonaAlvo && p.zona && p.zona !== "ambas" ? `só zona ${p.zona}` : null;
     return el("li", {}, el("b", {}, p.politica), marca ? el("span", { class: "local" }, marca) : null,
+      soZona ? el("span", { class: "local" }, soZona) : null,
       usaveis.length ? null : el("span", { class: "selo-nv" }, "fonte não verificada"),
       el("span", {}, `${p.evidencia ?? p.descricao ?? ""}`.slice(0, 320)),
       el("span", { class: "fontes" }, `${p.esfera ?? ""} · ${p.data ?? ""} · `,
@@ -392,10 +400,10 @@ function cardPoliticas(r) {
       el("span", {}, el("b", {}, fmt(s.bpc_por_mil_hab)), " BPC por mil hab.")),
     el("div", { class: "pol-grade" },
       el("div", {}, el("h3", {}, "O que o governo Lula planeja"), plano,
-        el("p", { class: "metodo" }, "Compromissos do Programa de Governo Lula 2026 (Coligação Brasil Pronto Pra Mais, 84 p.), escolhidos por regra: os indicadores em que a área está mais distante do Acre urbano (bairros) ou da zona rural do Acre (localidades rurais), com pelo menos 3 p.p. ou 7,5% em renda e adensamento. Nas localidades rurais entram os compromissos para o campo; nas aldeias, o compromisso com os povos indígenas. Trechos entre aspas são citações do plano.")),
+        el("p", { class: "metodo" }, "Compromissos do Programa de Governo Lula 2026 (Coligação Brasil Pronto Pra Mais, 84 p.), escolhidos por regra: os indicadores em que a área está mais distante do Acre urbano (bairros) ou da zona rural do Acre (localidades rurais), com pelo menos 3 p.p. ou 7,5% em renda e adensamento. Nas localidades rurais entram os compromissos para o campo; nas aldeias, o compromisso com os povos indígenas. Os instrumentos de habitação do plano (Minha Casa Minha Vida com Compra Assistida e áreas da União nas cidades, Reforma Casa Brasil) são urbanos e não são indicados na zona rural. Segurança pública entra quando a taxa de mortes violentas do município (Sinesp/MJSP, média de 2023 a 2025) passa a do Acre em 10% ou mais; o dado só existe por município. Trechos entre aspas são citações do plano.")),
       el("div", {}, el("h3", {}, "Programas federais de 2023 a 2026"),
         el("div", { class: "tabela-rolagem" }, progs),
-        el("p", { class: "metodo" }, `Curadoria de políticas federais no Acre com fonte, só com evidência datada de 2023 a 2026. Programas de alcance estadual ou nacional valem para todas as áreas; o selo indica citação nominal da área ou do município. Links verificados em ${dataBR(meta.gerado_em)}: durante o período eleitoral, o portal do Governo do Acre e várias notícias do gov.br saíram do ar (Lei 9.504/1997); nesses casos o link aponta para a cópia arquivada no Internet Archive ou para fonte alternativa conferida, e “fonte não verificada” indica que nenhuma delas foi encontrada.`))),
+        el("p", { class: "metodo" }, `Curadoria de políticas federais no Acre com fonte, só com evidência datada de 2023 a 2026. Programas de alcance estadual ou nacional valem para todas as áreas, exceto os exclusivos da zona urbana ou da zona rural, que só aparecem nela; o selo indica citação nominal da área ou do município. Links verificados em ${dataBR(meta.gerado_em)}: durante o período eleitoral, o portal do Governo do Acre e várias notícias do gov.br saíram do ar (Lei 9.504/1997); nesses casos o link aponta para a cópia arquivada no Internet Archive ou para fonte alternativa conferida, e “fonte não verificada” indica que nenhuma delas foi encontrada.`))),
     el("h3", {}, `Obras e projetos federais ${nivel === "localidade" ? "georreferenciados nesta área" : nivel === "zona" ? "georreferenciados na zona" : "no município"}`),
     obras.length ? el("div", { class: "tabela-rolagem obras" }, el("table", {},
       el("thead", {}, el("tr", {}, el("th", {}, "Projeto"), el("th", {}, "Situação"), el("th", {}, "Início"),

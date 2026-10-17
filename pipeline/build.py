@@ -9,8 +9,9 @@ Unidade territorial ("bairro"):
 
 Fontes: IBGE Censo 2022 (agregados por setor, renda do responsavel, entorno; malha
 de setores e bairros), TSE 2026 1o turno (boletins de urna, secoes, perfil do eleitorado),
-ObrasGov.br (projetos de investimento com geometria), curadoria de politicas federais
-(planilha do projeto eleicoes) e Programa de Governo Lula 2026 (TSE, 84 p.).
+ObrasGov.br (projetos de investimento com geometria), Sinesp VDE/MJSP (seguranca publica por
+municipio), curadoria de politicas federais (planilha do projeto eleicoes) e Programa de
+Governo Lula 2026 (TSE, 84 p.).
 
 Uso: ~/dev/eleicoes/.venv/bin/python -I pipeline/build.py   (duckdb + shapely)
 """
@@ -147,8 +148,8 @@ def indicadores(t, area):
         "alfabetizacao_pct": pct(S(t, *ALF_SIM), alf_t),
         "renda_resp": r1(t["_renda_num"] / t["_renda_den"] if t["_renda_den"] else None, 0),
         "agua_rede_pct": pct(t.get("V00111"), dppo),
-        "esgoto_adequado_pct": pct(S(t, "V00309", "V00310"), dppo),
-        "esgoto_precario_pct": pct(S(t, "V00312", "V00313", "V00314", "V00315", "V00316"), dppo),
+        "saneamento_adequado_pct": pct(S(t, "V00309", "V00310"), dppo),
+        "saneamento_precario_pct": pct(S(t, "V00312", "V00313", "V00314", "V00315", "V00316"), dppo),
         "sem_banheiro_pct": pct(t.get("V00238"), dppo),
         "lixo_coletado_pct": pct(S(t, "V00397", "V00398"), dppo),
         "pavimentacao_pct": pct(t.get("V05206"), ent) if ent else None,
@@ -159,7 +160,7 @@ def indicadores(t, area):
         "n": {
             "dppo": int(dppo),
             "dom_sem_agua": int(dppo - (t.get("V00111") or 0)),
-            "dom_sem_esgoto": int(dppo - S(t, "V00309", "V00310")),
+            "dom_sem_saneamento": int(dppo - S(t, "V00309", "V00310")),
             "dom_sem_banheiro": int(t.get("V00238") or 0),
             "dom_sem_lixo": int(dppo - S(t, "V00397", "V00398")),
             "nao_alfabetizados": int(alf_t - S(t, *ALF_SIM)),
@@ -191,8 +192,8 @@ INDICADORES = [  # k, rotulo, sufixo, grupo, bom (+1 maior e melhor, -1 menor e 
     ("alfabetizacao_pct", "Alfabetização (15+)", "%", "Renda e educação", 1),
     ("mor_dom", "Moradores por domicílio", "", "Renda e educação", -1),
     ("agua_rede_pct", "Água da rede geral", "%", "Saneamento", 1),
-    ("esgoto_adequado_pct", "Esgoto por rede ou fossa ligada", "%", "Saneamento", 1),
-    ("esgoto_precario_pct", "Esgoto precário (fossa rudimentar, vala, rio)", "%", "Saneamento", -1),
+    ("saneamento_adequado_pct", "Saneamento adequado (rede geral ou fossa ligada à rede)", "%", "Saneamento", 1),
+    ("saneamento_precario_pct", "Saneamento precário (fossa rudimentar, vala, rio)", "%", "Saneamento", -1),
     ("sem_banheiro_pct", "Domicílios sem banheiro", "%", "Saneamento", -1),
     ("lixo_coletado_pct", "Lixo coletado", "%", "Saneamento", 1),
     ("pavimentacao_pct", "Rua pavimentada", "%", "Entorno urbano", 1),
@@ -599,6 +600,23 @@ def fontes(d, verif, ordem):
     return sorted(out, key=lambda x: ordem[x["situacao"]])
 
 
+# Alcance territorial dos programas da curadoria: "urbana" e "rural" so aparecem nas areas daquela
+# zona (municipio mostra todos, com o selo). Regra por nome do programa; o resto vale para ambas.
+ZONA_POLITICA = [
+    # fichas do MCMV no Acre citam so empreendimentos urbanos; a Lei 14.620 (inclui o MCMV Rural) vale para ambas
+    ("urbana", r"Periferia Viva|Reforma Casa Brasil|Cozinha Solid|^Minha Casa Minha Vida"),
+    ("rural", r"Plano Safra|Pronaf|Desenrola Rural|\bPAA\b|Programa de Aquisi|Luz para Todos|Terra da Gente|"
+              r"reforma agr|Bolsa Verde|PGPMBio|Homologa[cç][aã]o da Terra Ind"),
+]
+
+
+def zona_politica(nome):
+    for zona, padrao in ZONA_POLITICA:
+        if re.search(padrao, nome, re.I):
+            return zona
+    return "ambas"
+
+
 def ler_politicas_curadas(nomes_mun, meta_u):
     abas = json.loads((RAW / "politicas_xlsx.json").read_text())  # export_politicas.py
     lk = RAW / "links_politicas.json"  # check_links.py
@@ -636,9 +654,81 @@ def ler_politicas_curadas(nomes_mun, meta_u):
                 "politica": d["Política pública"], "esfera": d.get("Esfera / responsável"),
                 "descricao": d.get("Descrição"), "evidencia": d.get("Evidência"), "data": d.get("Data"),
                 "fonte": d.get("Fonte"), "links": fontes(d, verif, ordem),
-                "muns": muns, "bairros": bairros, "anos": sorted(a for a in anos if 2023 <= a <= 2026),
+                "muns": muns, "bairros": bairros, "zona": zona_politica(d["Política pública"]), "anos": sorted(a for a in anos if 2023 <= a <= 2026),
             })
     return pol
+
+
+# ------------------------------------------------------------------ seguranca publica (Sinesp VDE)
+# CVLI (crimes violentos letais intencionais) = homicidio doloso + latrocinio + lesao corporal
+# seguida de morte. Feminicidio e mostrado a parte e nao entra na soma (e homicidio qualificado).
+# O Sinesp so publica por municipio: o dado nunca e atribuido a bairro ou localidade.
+CVLI = ("Homicídio doloso", "Roubo seguido de morte (latrocínio)", "Lesão corporal seguida de morte")
+EV_SEG = {"cvli": CVLI, "homicidio": ("Homicídio doloso",), "feminicidio": ("Feminicídio",),
+          "tentativa_homicidio": ("Tentativa de homicídio",), "tentativa_feminicidio": ("Tentativa de feminicídio",),
+          "transito": ("Morte no trânsito ou em decorrência dele (exceto homicídio doloso)",)}
+ANOS_TAXA = ("2023", "2024", "2025")  # anos completos: a taxa usa a media, estavel em municipio pequeno
+
+
+def ler_seguranca(nomes_mun, pop_mun):
+    """{cd_mun: {...}, "_estado": {...}}: vitimas por ano e taxa media de CVLI por 100 mil hab."""
+    sj = RAW / "sinesp/AC.json"  # fetch_sinesp.py
+    if not sj.exists():
+        print("AVISO: Sinesp ainda nao coletado; rode fetch_sinesp.py")
+        return {}
+    dados = json.loads(sj.read_text())
+    por_nome = {chave(v): k for k, v in nomes_mun.items()}
+    anos = sorted(a for a in dados if a.isdigit())
+    out = {}
+    for alvo in [*nomes_mun, "_estado"]:
+        serie = {}
+        for a in anos:
+            ev = defaultdict(int)
+            for nome, e in dados[a]["mun"].items():
+                if alvo == "_estado" or por_nome.get(chave(nome)) == alvo:
+                    for k, v in e.items():
+                        ev[k] += int(v)
+            serie[a] = {k: sum(ev[x] for x in evs) for k, evs in EV_SEG.items()}
+        pop = sum(pop_mun.values()) if alvo == "_estado" else pop_mun[alvo]
+        com = [a for a in ANOS_TAXA if a in serie]
+        media = sum(serie[a]["cvli"] for a in com) / len(com) if com else None
+        out[alvo] = {"serie": serie, "meses": {a: dados[a]["meses"] for a in anos}, "pop": pop,
+                     "anos_taxa": com, "cvli_media": r1(media), "cvli_taxa": r1(media / pop * 1e5 if media is not None and pop else None)}
+    sem = sum(sum(e.values()) for a in anos for n, e in dados[a]["mun"].items() if chave(n) not in por_nome)
+    print(f"seguranca: {len(anos)} anos; vitimas sem municipio informado (so no total do estado): {sem}")
+    return out
+
+
+# a taxa municipal so vira carencia quando passa a do Acre com folga (10%): em municipio pequeno
+# poucas mortes mexem muito na taxa, por isso a media dos anos completos
+FOLGA_SEG = 1.10
+
+
+def carencia_seguranca(seg, est):
+    if not seg or seg.get("cvli_taxa") is None or not est or not est.get("cvli_taxa"):
+        return False
+    return seg["cvli_taxa"] >= est["cvli_taxa"] * FOLGA_SEG
+
+
+def frase_seguranca(seg, est, nome):
+    a0, a1 = seg["anos_taxa"][0], seg["anos_taxa"][-1]
+    return (f"{nome} teve {fmt(seg['cvli_taxa'], 1)} mortes violentas por 100 mil habitantes ao ano de {a0} a {a1} "
+            f"(cerca de {fmt(seg['cvli_media'], 0)} por ano), acima da média do Acre ({fmt(est['cvli_taxa'], 1)}). "
+            "O dado do Sinesp existe só para o município inteiro, não por bairro")
+
+
+def compromisso_seguranca(seg, est, nome):
+    """Compromisso de seguranca do plano, somado aos demais quando o municipio tem carencia."""
+    if not carencia_seguranca(seg, est):
+        return []
+    c = next(x for x in PLANO if x["id"] == "seguranca")
+    return [{"id": "seguranca", "motivo": {"k": "cvli_taxa", "valor": seg["cvli_taxa"], "ref": est["cvli_taxa"]},
+             "tema": c["tema"], "pagina": c["pagina"], "promessa": c["promessa"], "meta": c["meta"],
+             "ref_rot": "no Acre", "falta": f"Segurança: {frase_seguranca(seg, est, nome)}.",
+             "territorio": f"o dado existe só para o município: {nome} teve {fmt(seg['cvli_taxa'], 1)} mortes violentas "
+                           f"intencionais por 100 mil habitantes ao ano em {seg['anos_taxa'][0]}–{seg['anos_taxa'][-1]}, "
+                           f"contra {fmt(est['cvli_taxa'], 1)} no Acre (Sinesp/MJSP).",
+             "significa": f"enfrentar a violência em {nome}, onde a taxa de mortes violentas é maior que a do Acre"}]
 
 
 # Compromissos do Programa de Governo Lula 2026 (Coligacao Brasil Pronto Pra Mais, TSE, 84 p.).
@@ -654,12 +744,12 @@ def _n(v):
 PLANO = [
     dict(id="agua", tema="Água tratada", pagina="46", gatilho=("agua_rede_pct", -1),
          promessa="Apoiar estados e municípios a “universalizar acesso à água tratada e ao esgotamento sanitário, buscando priorizar periferias historicamente negligenciadas”.",
-         meta="Dá sequência aos R$ 23,3 bilhões aplicados desde 2023 em novas obras de água, esgoto e resíduos sólidos e aos R$ 3,5 bilhões para concluir obras inacabadas.",
+         meta="Dá sequência aos R$ 23,3 bilhões aplicados desde 2023 em novas obras de abastecimento de água, saneamento e resíduos sólidos e aos R$ 3,5 bilhões para concluir obras inacabadas.",
          territorio=lambda n, i, r: f"{_n(n['dom_sem_agua'])} dos {_n(n['dppo'])} domicílios não são abastecidos pela rede geral ({fmt(i['agua_rede_pct'])}% com rede, contra {fmt(r['agua_rede_pct'])}% {r['_rot']})."),
-    dict(id="saneamento", tema="Esgoto", pagina="46–47", gatilho=("esgoto_adequado_pct", -1),
-         promessa="Universalizar o esgotamento sanitário priorizando periferias; “a gestão dos resíduos sólidos e o tratamento de esgotos continuarão a ter o apoio da União”, com soluções como biogás e biometano.",
+    dict(id="saneamento", tema="Saneamento", pagina="46–47", gatilho=("saneamento_adequado_pct", -1),
+         promessa="Universalizar o saneamento priorizando periferias; “a gestão dos resíduos sólidos e o tratamento de esgotos continuarão a ter o apoio da União”, com soluções como biogás e biometano.",
          meta="Mesma carteira de R$ 23,3 bilhões em saneamento do Novo PAC desde 2023, mantida no próximo mandato.",
-         territorio=lambda n, i, r: f"{_n(n['dom_sem_esgoto'])} domicílios não têm esgoto ligado à rede ou fossa séptica ligada à rede ({fmt(i['esgoto_adequado_pct'])}% adequados, contra {fmt(r['esgoto_adequado_pct'])}% {r['_rot']})."),
+         territorio=lambda n, i, r: f"{_n(n['dom_sem_saneamento'])} domicílios não têm saneamento adequado, isto é, ligação à rede geral ou fossa ligada à rede ({fmt(i['saneamento_adequado_pct'])}% adequados, contra {fmt(r['saneamento_adequado_pct'])}% {r['_rot']})."),
     dict(id="lixo", tema="Coleta de lixo", pagina="46–47", gatilho=("lixo_coletado_pct", -1),
          promessa="Manter o apoio da União à gestão de resíduos sólidos, dentro da agenda de saneamento do Novo PAC.",
          meta="Resíduos sólidos integram os R$ 23,3 bilhões de novas obras de saneamento desde 2023.",
@@ -715,11 +805,15 @@ PLANO = [
     dict(id="rural", tema="Água e energia no campo", pagina="60 e 65", gatilho=None,
          promessa="Buscar a universalização da água potável e da energia elétrica no campo, priorizando fontes renováveis (Luz para Todos com “foco em áreas rurais e Amazônia Legal”); ampliar saneamento rural ecológico, Cisternas, reforma agrária e regularização fundiária, “especialmente na região Norte”, e o PRONERA.",
          meta="O plano não fixa meta numérica para o campo; o Luz do Povo zera a conta de luz de famílias do CadÚnico que consomem até 80 kWh/mês (p. 65).",
-         territorio=lambda n, i, r: f"{_n(n['dom_sem_agua'])} dos {_n(n['dppo'])} domicílios da área não recebem água da rede geral e {_n(n['dom_sem_esgoto'])} não têm esgoto adequado."),
+         territorio=lambda n, i, r: f"{_n(n['dom_sem_agua'])} dos {_n(n['dppo'])} domicílios da área não recebem água da rede geral, {_n(n['dom_sem_saneamento'])} não têm saneamento adequado e {_n(n['dom_sem_banheiro'])} não têm banheiro."),
     dict(id="agricultura", tema="Agricultura familiar", pagina="58–60", gatilho=None,
          promessa="Expandir o Plano Safra da Agricultura Familiar, com prioridade para alimentos da cesta básica e crédito para jovens e mulheres agricultoras; ampliar PAA e ATER, fortalecer o Garantia-Safra e o seguro rural.",
          meta="Apoiar estados e municípios a cumprir 45% da alimentação escolar comprada da agricultura familiar e 80% de alimentos in natura ou minimamente processados.",
          territorio=lambda n, i, r: f"são {_n(i['pop'])} moradores na zona rural, em {_n(n['dppo'])} domicílios."),
+    dict(id="seguranca", tema="Segurança pública", pagina="27–29", gatilho=None,
+         promessa="Fortalecer o Programa Brasil Contra o Crime Organizado (tráfico de armas, asfixia financeira de facções e milícias, “qualificação da investigação de homicídios”, “retomada de territórios”), ampliar as FICCOs e a presença do Estado na Amazônia Legal e expandir a prevenção “com foco na proteção da juventude negra”, a mediação comunitária e a justiça restaurativa.",
+         meta="R$ 10 bilhões do Fundo Nacional de Investimento em Infraestrutura Social (FIIS) para estados e municípios investirem em equipamentos e infraestrutura (p. 27–28); PEC da Segurança Pública enviada ao Congresso e Lei Antifacção sancionada em 2026 (p. 27).",
+         territorio=lambda n, i, r: ""),
     dict(id="conectividade", tema="Internet", pagina="32 e 55", gatilho=None,
          promessa="Reduzir o déficit de fibra óptica e ampliar o 5G no campo “com prioridade para Norte, Nordeste e periferias”; universalizar a internet de qualidade nas escolas.",
          meta="Fibra óptica ainda falta em 11% dos municípios (p. 55); 75% das escolas já conectadas nos parâmetros adequados (p. 32).",
@@ -752,8 +846,12 @@ def _carencias(ind, ref, excluir=()):
     return out
 
 
-# na zona rural, agua/esgoto entram no compromisso do campo e nao ha levantamento do entorno
-EXCLUIR_RURAL = ("agua", "saneamento", "periferia_viva", "espaco_publico", "drenagem")
+# na zona rural, agua/saneamento entram no compromisso do campo e nao ha levantamento do entorno.
+# Habitacao: os instrumentos do plano (p. 45) sao urbanos: MCMV com Compra Assistida e areas da
+# Uniao "das cidades"; o Reforma Casa Brasil vale so para imovel em area urbana (cartilha do
+# MCidades). Sem banheiro na zona rural cai no "saneamento rural ecologico" do compromisso do campo.
+EXCLUIR_RURAL = ("agua", "saneamento", "periferia_viva", "espaco_publico", "drenagem",
+                 "moradia", "adensamento", "banheiro")
 
 
 def compromissos(ind, ref, rural, tipo="Bairro"):
@@ -837,10 +935,10 @@ def de_cada_10(p):
 
 # o que cada compromisso do plano preve, em uma frase, e o que significa aqui
 PLANO_DIDATICO = {
-    "agua": ("levar água tratada e esgoto a todos, começando pelas periferias",
+    "agua": ("levar água tratada e saneamento a todos, começando pelas periferias",
              lambda n, i: f"chegar a cerca de {_n(n['dom_sem_agua'])} casas que ainda não recebem água da rede geral"),
-    "saneamento": ("ligar todas as casas a um esgoto adequado, com prioridade para as periferias",
-                   lambda n, i: f"ligar cerca de {_n(n['dom_sem_esgoto'])} casas que hoje não têm esgoto adequado"),
+    "saneamento": ("garantir saneamento adequado a todas as casas, com prioridade para as periferias",
+                   lambda n, i: f"ligar cerca de {_n(n['dom_sem_saneamento'])} casas que hoje não têm saneamento adequado"),
     "lixo": ("apoiar a coleta e o tratamento do lixo",
              lambda n, i: f"atender cerca de {_n(n['dom_sem_lixo'])} casas que não têm o lixo coletado"),
     "drenagem": ("fazer obras de drenagem e de proteção contra enchentes nas áreas de risco",
@@ -871,6 +969,8 @@ PLANO_DIDATICO = {
               lambda n, i: f"chegar a {_n(n['dom_sem_agua'])} casas sem água da rede e às famílias ainda sem energia"),
     "agricultura": ("dar mais crédito à agricultura familiar e comprar alimentos dela para a merenda escolar",
                     lambda n, i: f"apoiar os {_n(i['pop'])} moradores da área, em grande parte agricultores e extrativistas"),
+    "seguranca": ("enfrentar o crime organizado, investigar melhor os homicídios e prevenir a violência contra os jovens",
+                  None),  # o que significa vem de compromisso_seguranca (dado municipal)
     "conectividade": ("levar internet de fibra e 5G ao campo e às periferias do Norte",
                       lambda n, i: f"conectar os {_n(i['pop'])} moradores da área"),
 }
@@ -878,7 +978,7 @@ PLANO_DIDATICO = {
 # como contar cada carencia em linguagem simples: (titulo, frase com a proporcao)
 CARENCIA = {
     "agua_rede_pct": ("Água encanada", lambda v: f"{proporcao(v)} casas recebem água da rede geral"),
-    "esgoto_adequado_pct": ("Esgoto", lambda v: f"{proporcao(v)} casas têm esgoto adequado"),
+    "saneamento_adequado_pct": ("Saneamento", lambda v: f"{proporcao(v)} casas têm saneamento adequado"),
     "lixo_coletado_pct": ("Coleta de lixo", lambda v: f"{proporcao(v)} casas têm o lixo coletado"),
     "bueiro_pct": ("Drenagem", lambda v: f"{proporcao(v)} moradores vivem em rua com bueiro"),
     "pavimentacao_pct": ("Rua asfaltada", lambda v: f"{proporcao(v)} moradores vivem em rua pavimentada"),
@@ -928,7 +1028,9 @@ def secao_falta(u, ref):
     itens = []
     for c in u["plano"]:
         k = (c.get("motivo") or {}).get("k")
-        if k in CARENCIA:
+        if c.get("falta"):
+            itens.append(c["falta"])
+        elif k in CARENCIA:
             tit, frase = CARENCIA[k]
             itens.append(f"{tit}: {frase(c['motivo']['valor'])}{_ref_frase(k, ref, ref['_rot'])}.")
     if not itens:
@@ -1013,12 +1115,17 @@ def texto_municipio(m, unidades_m, obras_m):
     if m["censo"].get("renda_resp"):
         quem += f" Quem sustenta a casa ganha, em média, R$ {_n(int(m['censo']['renda_resp']))} por mês."
     secoes = [{"t": "Quem mora aqui", "p": [quem]}]
-    # onde falta mais: bairros e localidades com menos esgoto e agua
-    piores = sorted([u for u in urb if u["censo"]["pop"] >= 300 and u["censo"].get("esgoto_adequado_pct") is not None],
-                    key=lambda u: u["censo"]["esgoto_adequado_pct"])[:3]
+    # onde falta mais: bairros com menos saneamento adequado
+    piores = sorted([u for u in urb if u["censo"]["pop"] >= 300 and u["censo"].get("saneamento_adequado_pct") is not None],
+                    key=lambda u: u["censo"]["saneamento_adequado_pct"])[:3]
+    itens = []
+    if carencia_seguranca(m.get("seguranca"), m.get("_seg_estado")):
+        itens.append(f"Segurança: {frase_seguranca(m['seguranca'], m['_seg_estado'], m['nome'])}.")
     if len(urb) >= 3 and piores:
-        secoes.append({"t": "Onde falta mais", "intro": "Na cidade, os bairros com menos esgoto adequado são:",
-                       "itens": [f"{u['nome']}: {proporcao(u['censo']['esgoto_adequado_pct'])} casas têm esgoto adequado." for u in piores]})
+        itens.append("Saneamento: os bairros com menos casas com saneamento adequado são " + ", ".join(
+            f"{u['nome']} ({proporcao(u['censo']['saneamento_adequado_pct'])} casas)" for u in piores) + ".")
+    if itens:
+        secoes.append({"t": "Onde falta mais", "intro": "Comparando com o restante do Acre:", "itens": itens})
     v = secao_voto(m, m, "no município")
     if v:
         com = [u for u in unidades_m if u["eleicao"] and u["eleicao"]["validos"] >= 200]
@@ -1039,11 +1146,15 @@ def texto_municipio(m, unidades_m, obras_m):
     cont = Counter()
     for u in unidades_m:
         for c in u["plano"]:
-            cont[c["id"]] += u["censo"]["pop"]
+            if c["id"] != "seguranca":  # municipal: entra a parte, abaixo
+                cont[c["id"]] += u["censo"]["pop"]
     por_id = {c["id"]: c for c in PLANO}
     top = [{"id": i, "tema": por_id[i]["tema"], "pagina": por_id[i]["pagina"],
             "frase_local": f"É uma das maiores carências em bairros e localidades onde vivem {_n(p)} pessoas."}
            for i, p in cont.most_common(3)]
+    if carencia_seguranca(m.get("seguranca"), m.get("_seg_estado")):
+        top.append({"id": "seguranca", "tema": por_id["seguranca"]["tema"], "pagina": por_id["seguranca"]["pagina"],
+                    "frase_local": "A taxa de mortes violentas do município está acima da média do Acre."})
     secoes.append(secao_plano(top, "no município"))
     return [s for s in secoes if s]
 
@@ -1118,6 +1229,10 @@ def main():
 
     obras = ler_obras(setores, setor_uid, nomes_mun)
     politicas = ler_politicas_curadas(nomes_mun, meta_u)
+    pop_mun = Counter()
+    for cd, s in setores.items():
+        pop_mun[s["mun"]] += int((censo.get(cd) or {}).get("V0001") or 0)
+    seguranca = ler_seguranca(nomes_mun, pop_mun)
 
     municipios = []
     for mun in sorted(nomes_mun, key=lambda m: nomes_mun[m]):
@@ -1135,6 +1250,8 @@ def main():
                        ("pbf_familias", "pbf_valor_medio", "pbf_pessoas_pct", "bpc_por_mil_hab", "pib_per_capita",
                         "evangelicos_pct", "renda_pc_media")}
         m["historico_lula_ab"] = d.get("share")  # % polo A (PT) 2006-2026, painel Territorios em Disputa
+        m["seguranca"] = seguranca.get(mun)
+        m["_seg_estado"] = seguranca.get("_estado")
         obras_m = [o for o in obras if o["mun"] == mun]
         unidades_m, feats = [], []
         for uid in uids:
@@ -1148,7 +1265,8 @@ def main():
             u["perfil"] = perfil_unidade(secs, perfis) if secs else None
             u["obras"] = [o for o in obras_m if o["bairro"] == uid]
             u["politicas"] = [p["politica"] for p in politicas if uid in p["bairros"]]
-            u["plano"] = compromissos(u["censo"], ref_rural if u["rural"] else ref_estado, u["rural"], u["tipo"])
+            u["plano"] = compromissos(u["censo"], ref_rural if u["rural"] else ref_estado, u["rural"], u["tipo"]) + \
+                compromisso_seguranca(m["seguranca"], m["_seg_estado"], m["nome"])
             u["_ref"] = ref_rural if u["rural"] else ref_estado
             unidades_m.append(u)
             feats.append((uid, shapely.union_all([setores[c]["geom"] for c in sets]), u["rural"]))
@@ -1168,7 +1286,8 @@ def main():
             z["perfil"] = perfil_unidade(secs, perfis) if secs else None
             z["obras"] = [o for o in obras_m if o["bairro"] in {u["id"] for u in membros}]
             z["politicas"] = []
-            z["plano"] = compromissos(z["censo"], ref_rural if rural else ref_estado, rural, "Zona")
+            z["plano"] = compromissos(z["censo"], ref_rural if rural else ref_estado, rural, "Zona") + \
+                compromisso_seguranca(m["seguranca"], m["_seg_estado"], m["nome"])
             z["_ref"] = ref_rural if rural else ref_estado
             m["zonas"][zona] = z
         for u in [*unidades_m, *filter(None, m["zonas"].values())]:
@@ -1176,6 +1295,8 @@ def main():
             u["obras"] = [o["id"] for o in u["obras"]]
             u.pop("_ref", None)
         m["texto"] = texto_municipio(m, unidades_m, obras_m)
+        m.pop("_seg_estado")
+        m.pop("seguranca")  # ja virou texto e compromisso; o painel nao usa a serie
         m["bairros"] = sorted(unidades_m, key=lambda u: (u["rural"], -u["censo"]["pop"]))
         m["obras"] = sorted(obras_m, key=lambda o: -o["valor_federal"])
         m["politicas"] = [i for i, p in enumerate(politicas) if "*" in p["muns"] or mun in p["muns"]]
@@ -1211,6 +1332,7 @@ def main():
             {"fonte": "TSE — boletins de urna, seções e locais de votação, 1º turno de 04/10/2026", "url": "https://resultados.tse.jus.br/oficial/app/index.html"},
             {"fonte": "TSE — perfil do eleitorado por seção, 2026", "url": "https://dadosabertos.tse.jus.br/"},
             {"fonte": "ObrasGov.br — projetos de investimento e geometrias (API pública)", "url": "https://api.obrasgov.gestao.gov.br/obrasgov/api/swagger-ui/index.html"},
+            {"fonte": "MJSP — Sinesp VDE, indicadores de segurança pública por município, 2023 a ago/2026", "url": "https://www.gov.br/mj/pt-br/assuntos/sua-seguranca/seguranca-publica/estatistica/dados-nacionais-1/base-de-dados-e-notas-metodologicas-dos-gestores-estaduais-sinesp-vde-2022-e-2023"},
             {"fonte": "MDS — MI Social (Bolsa Família, BPC), ago/2026, via painel Territórios em Disputa", "url": "https://aplicacoes.mds.gov.br/sagi/servicos/misocial/"},
             {"fonte": "Programa de Governo Lula 2026 — Coligação Brasil Pronto Pra Mais (84 p.)", "url": "https://static.congressoemfoco.com.br/2026/08/08/attachment/2026/08/08/32ce89_programa_governo_lula_2026.pdf"},
         ],
