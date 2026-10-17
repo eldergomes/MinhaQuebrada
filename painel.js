@@ -221,10 +221,6 @@ function desenharMapa() {
   });
   if (obrasDesenhadas.size) leg.push(el("span", {}, el("i", { class: "ponto-obra" }), `obra federal (${obrasDesenhadas.size})`));
   $("legenda").replaceChildren(...leg);
-  $("mapa-nota").textContent = (k === "lula_pct" || k === "flavio_pct"
-    ? "1º turno de 2026, atribuído pelo local de votação. " : "Censo 2022 (IBGE). ")
-    + (estado.zona === "urbana" ? "Zona rural ao fundo, esmaecida. " : estado.zona === "rural" ? "Bairros urbanos esmaecidos. " : "")
-    + "Clique numa área para ler sobre ela.";
 }
 
 // escala fixa para % de votos nominais (comparavel entre municipios): sequencial por candidato
@@ -272,8 +268,12 @@ function marcarSelecao() {
 function atualizar() {
   gravarHash();
   const r = recorte();
+  const chave = `${estado.cd}|${r.alvo.id ?? r.alvo.cd}`;
+  if (chave !== estado.chaveCartas) { for (const k in cartaAtual) delete cartaAtual[k]; estado.chaveCartas = chave; }
   cardTexto(r);
-  cardPoliticas(r);
+  cardPlano(r);
+  cardProgramas(r);
+  cardObras(r);
   marcarSelecao();
 }
 
@@ -288,65 +288,117 @@ const observarMapa = new ResizeObserver(() => {
   });
 });
 
-// ---------------------------------------------------------------- cards
+// ---------------------------------------------------------------- cartas
+// Cada card mostra uma carta por vez; as setas levam a anterior e a proxima e dizem qual e.
+// A carta atual de cada card volta ao inicio quando muda a area em foco.
+const cartaAtual = {};
+function baralho(id, cabeca, cartas) {
+  const card = $(id);
+  if (!cartas.length) cartas = [{ titulo: "", corpo: () => [el("p", { class: "vazio" }, "Nada registrado para esta área.")] }];
+  const corpo = el("div", { class: "carta" });
+  const ant = el("button", { type: "button", class: "seta ant" });
+  const prox = el("button", { type: "button", class: "seta prox" });
+  const pos = el("span", { class: "pos", "aria-live": "polite" });
+  const mostrar = (n) => {
+    cartaAtual[id] = n;
+    corpo.replaceChildren(...cartas[n].corpo().filter(Boolean));
+    corpo.scrollTop = 0;
+    const seta = (b, c, txt) => {
+      b.classList.toggle("vazia", !c);
+      b.disabled = !c;
+      b.replaceChildren(...(c ? txt(c.titulo) : []));
+      b.title = c ? c.titulo : "";
+    };
+    seta(ant, cartas[n - 1], (t) => [el("span", { "aria-hidden": "true" }, "‹ "), el("span", { class: "rot" }, t)]);
+    seta(prox, cartas[n + 1], (t) => [el("span", { class: "rot" }, t), el("span", { "aria-hidden": "true" }, " ›")]);
+    ant.setAttribute("aria-label", cartas[n - 1] ? `Anterior: ${cartas[n - 1].titulo}` : "");
+    prox.setAttribute("aria-label", cartas[n + 1] ? `Próxima: ${cartas[n + 1].titulo}` : "");
+    pos.textContent = cartas.length > 1 ? `${n + 1} de ${cartas.length}` : "";
+  };
+  ant.addEventListener("click", () => mostrar(cartaAtual[id] - 1));
+  prox.addEventListener("click", () => mostrar(cartaAtual[id] + 1));
+  card.onkeydown = (e) => {
+    if (e.target.closest("select, input")) return;
+    const n = cartaAtual[id] + (e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0);
+    if (n !== cartaAtual[id] && cartas[n]) { e.preventDefault(); mostrar(n); }
+  };
+  card.replaceChildren(...cabeca, corpo,
+    ...(cartas.length > 1 ? [el("nav", { class: "carta-nav", "aria-label": "Navegar entre as cartas" }, ant, pos, prox)] : []));
+  mostrar(Math.min(cartaAtual[id] ?? 0, cartas.length - 1));
+}
+
 const obrasDe = (r) => {
   const m = estado.dados;
   if (r.nivel === "localidade") return m.obras.filter((o) => o.bairro === r.alvo.id);
   if (r.nivel === "zona") { const ids = new Set(r.irmas.map((u) => u.id)); return m.obras.filter((o) => ids.has(o.bairro)); }
   return m.obras;
 };
+const nomeDo = (r) => (r.nivel === "zona" ? `${r.alvo.nome.toLowerCase()} de ${estado.dados.nome}` : r.alvo.nome);
 
 function cardTexto(r) {
-  const secoes = r.alvo.texto ?? [];
   const titulo = r.nivel === "zona" ? `${r.alvo.nome} de ${estado.dados.nome}` : r.alvo.nome;
   const sub = r.nivel === "municipio" ? "Município" : r.nivel === "zona" ? "Zona"
     : r.alvo.rural ? `Localidade rural · ${r.alvo.tipo}` : `Bairro · ${estado.dados.nome}`;
-  $("card-texto").replaceChildren(
-    el("span", { class: "etiqueta-ia" }, "Leitura do território"),
-    el("h2", { class: "titulo-ia" }, titulo, " ", el("small", {}, sub)),
-    el("div", { class: "texto" }, ...secoes.map((sc) => el("section", { class: "secao-leitura" },
-      el("h3", {}, sc.t),
-      ...(sc.p ?? []).map((x) => el("p", {}, x)),
-      sc.intro ? el("p", {}, sc.intro) : null,
-      sc.itens ? el("ul", {}, ...sc.itens.map((x) => {
-        const k = x.indexOf(" — ") > 0 ? x.indexOf(" — ") : x.indexOf(": ");
-        return k > 0 ? el("li", {}, el("b", {}, x.slice(0, k)), x.slice(k)) : el("li", {}, x);
-      })) : null))),
-    el("p", { class: "aviso-ia" }, el("b", {}, "Como este texto é feito: "),
-      "escrito automaticamente, por regras fixas, a partir dos dados do painel (Censo 2022 do IBGE, votação do TSE em 2026, obras do ObrasGov.br e Programa de Governo Lula 2026). “Cerca de 3 em cada 10” arredonda a porcentagem; os valores exatos estão nas fontes."),
-  );
+  const item = (x) => {
+    const k = x.indexOf(" — ") > 0 ? x.indexOf(" — ") : x.indexOf(": ");
+    return k > 0 ? el("li", {}, el("b", {}, x.slice(0, k)), x.slice(k)) : el("li", {}, x);
+  };
+  baralho("card-texto", [el("span", { class: "etiqueta-ia" }, "Leitura do território"),
+    el("h2", { class: "titulo-ia" }, titulo, " ", el("small", {}, sub))],
+  (r.alvo.texto ?? []).map((sc) => ({ titulo: sc.t, corpo: () => [
+    el("h3", {}, sc.t),
+    ...(sc.p ?? []).map((x) => el("p", {}, x)),
+    sc.intro ? el("p", {}, sc.intro) : null,
+    sc.itens ? el("ul", {}, ...sc.itens.map(item)) : null] })));
 }
 
-function cardPoliticas(r) {
+/** Compromissos do plano: da area em foco ou, no municipio, os mais frequentes entre as areas. */
+function itensPlano(r) {
+  const { alvo, nivel } = r;
+  const m = estado.dados;
+  if (nivel !== "municipio") return alvo.plano.map((c) => ({ ...c, ter: `${nivel === "zona" ? "Na" : "Em"} ${nomeDo(r)}, ${c.territorio}` }));
+  const planoIdx = Object.fromEntries(estado.meta.plano.map((c) => [c.id, c]));
+  const cont = {};
+  let seg = null;  // seguranca: dado municipal, igual em todas as areas
+  for (const x of m.bairros) {
+    for (const c of x.plano) {
+      if (c.id === "seguranca") { seg ??= c; continue; }
+      const t = (cont[c.id] ??= { pop: 0, nomes: [] });
+      t.pop += x.censo.pop;
+      t.nomes.push(x.nome);
+    }
+  }
+  const itens = Object.entries(cont).sort((a, c) => c[1].pop - a[1].pop).slice(0, 5).map(([id, v]) => ({
+    ...planoIdx[id], ter: `Prioritário em ${v.nomes.length} bairro(s) ou localidade(s) que somam ${fmtInt(v.pop)} moradores: ${v.nomes.slice(0, 6).join(", ")}${v.nomes.length > 6 ? "…" : "."}` }));
+  if (seg) itens.push({ ...seg, ter: `Em ${m.nome}, ${seg.territorio}` });
+  return itens;
+}
+
+function cardPlano(r) {
+  const m = estado.dados, s = m.social;
+  const obras = obrasDe(r);
+  const tile = (v, rot) => el("div", {}, el("b", {}, v), el("span", {}, rot));
+  const numeros = { titulo: "Em números", corpo: () => [
+    el("h3", {}, "Em números"),
+    el("div", { class: "tiles" },
+      tile(fmtInt(obras.length), obras.length === 1 ? "obra federal desde 2023" : "obras federais desde 2023"),
+      tile(brl(obras.reduce((t, o) => t + o.valor_federal, 0)), "previstos de fonte federal"),
+      tile(fmtInt(s.pbf_familias), "famílias no Bolsa Família"),
+      tile(fmtInd(s.pbf_valor_medio, " R$"), "benefício médio"),
+      tile(fmt(s.bpc_por_mil_hab), "BPC por mil habitantes"))] };
+  baralho("card-plano", [el("h2", { class: "titulo-card" }, "Políticas públicas federais"),
+    el("p", { class: "sub-card" }, nomeDo(r))],
+  [numeros, ...itensPlano(r).map((c) => ({ titulo: c.tema, corpo: () => [
+    el("span", { class: "kicker-carta" }, `O que o governo Lula planeja · p. ${c.pagina}`),
+    el("h3", {}, c.tema),
+    el("p", {}, el("strong", {}, "Plano: "), c.promessa),
+    el("p", { class: "meta" }, el("strong", {}, "Meta e escala: "), c.meta),
+    el("p", { class: "ter" }, c.ter)] }))]);
+}
+
+function cardProgramas(r) {
   const { alvo, nivel } = r;
   const m = estado.dados, meta = estado.meta;
-  const card = $("card-politicas");
-  const planoIdx = Object.fromEntries(meta.plano.map((c) => [c.id, c]));
-  const nomeAlvo = nivel === "zona" ? `${alvo.nome.toLowerCase()} de ${m.nome}` : alvo.nome;
-  // localidade e zona: compromissos ja dimensionados; municipio: os mais frequentes entre as areas
-  let itens;
-  if (nivel !== "municipio") itens = alvo.plano.map((c) => ({ ...c, ter: `${nivel === "zona" ? "Na" : "Em"} ${nomeAlvo}, ${c.territorio}` }));
-  else {
-    const cont = {};
-    let seg = null;  // seguranca: dado municipal, igual em todas as areas
-    for (const x of m.bairros) {
-      for (const c of x.plano) {
-        if (c.id === "seguranca") { seg ??= c; continue; }
-        const t = (cont[c.id] ??= { pop: 0, nomes: [] });
-        t.pop += x.censo.pop;
-        t.nomes.push(x.nome);
-      }
-    }
-    itens = Object.entries(cont).sort((a, c) => c[1].pop - a[1].pop).slice(0, 5).map(([id, v]) => ({
-      ...planoIdx[id], ter: `Prioritário em ${v.nomes.length} bairro(s) ou localidade(s) que somam ${fmtInt(v.pop)} moradores: ${v.nomes.slice(0, 6).join(", ")}${v.nomes.length > 6 ? "…" : ""}.` }));
-    if (seg) itens.push({ ...seg, ter: `Em ${m.nome}, ${seg.territorio}` });
-  }
-  const plano = el("ul", { class: "plano" }, ...itens.map((c) => el("li", {},
-    el("b", {}, `${c.tema} · p. ${c.pagina}`),
-    el("span", {}, el("strong", {}, "Plano: "), c.promessa),
-    el("span", { class: "meta" }, el("strong", {}, "Meta e escala: "), c.meta),
-    el("span", { class: "ter" }, c.ter))));
-
   // programas so urbanos (ex.: Periferia Viva) ou so rurais (ex.: Pronaf) ficam fora da outra zona
   const zonaAlvo = nivel === "municipio" ? null : alvo.rural ? "rural" : "urbana";
   const pols = m.politicas.map((i) => meta.politicas[i])
@@ -358,68 +410,67 @@ function cardPoliticas(r) {
   // fontes ja verificadas no pipeline (check_links.py): ok, substituto, copia arquivada ou fora do ar
   const SIT = { substituto: "fonte alternativa", arquivo: "cópia arquivada", indisponivel: "fora do ar" };
   const link = (l) => (l.situacao === "indisponivel"
-    ? el("span", { class: "fonte-off", title: l.nota }, `${l.rotulo} (fora do ar, não verificado)`)
+    ? el("span", { class: "fonte-off", title: l.nota }, `${l.rotulo} (fora do ar)`)
     : el("a", { href: l.href, target: "_blank", rel: "noopener noreferrer", ...(l.nota ? { title: l.nota } : {}) },
       l.rotulo, l.situacao !== "ok" ? ` (${SIT[l.situacao]})` : ""));
-  const item = (p, marca) => {
+  const carta = (p, marca) => ({ titulo: p.politica, corpo: () => {
     const links = p.links ?? (p.url ? [{ rotulo: p.fonte || "fonte", href: p.url, situacao: "ok" }] : []);
     const usaveis = links.filter((l) => l.situacao !== "indisponivel");
     const soZona = !zonaAlvo && p.zona && p.zona !== "ambas" ? `só zona ${p.zona}` : null;
-    return el("li", {}, el("b", {}, p.politica), marca ? el("span", { class: "local" }, marca) : null,
-      soZona ? el("span", { class: "local" }, soZona) : null,
-      usaveis.length ? null : el("span", { class: "selo-nv" }, "fonte não verificada"),
-      el("span", {}, `${p.evidencia ?? p.descricao ?? ""}`.slice(0, 320)),
-      el("span", { class: "fontes" }, `${p.esfera ?? ""} · ${p.data ?? ""} · `,
-        ...(usaveis.length ? usaveis : links).flatMap((l, i) => [i ? " · " : "", link(l)])));
-  };
-  const progs = el("ul", { class: "programas" },
-    ...naArea.map((p) => item(p, nivel === "localidade" ? "nesta área" : "na zona")),
-    ...locais.map((p) => item(p, m.nome)),
-    ...gerais.map((p) => item(p, null)));
+    return [
+      el("div", { class: "selos" }, marca ? el("span", { class: "local" }, marca) : null,
+        soZona ? el("span", { class: "local" }, soZona) : null,
+        usaveis.length ? null : el("span", { class: "selo-nv" }, "fonte não verificada")),
+      el("h3", {}, p.politica),
+      el("p", {}, `${p.evidencia ?? p.descricao ?? ""}`),
+      el("p", { class: "fontes" }, `${p.esfera ?? ""} · ${p.data ?? ""} · `,
+        ...(usaveis.length ? usaveis : links).flatMap((l, i) => [i ? " · " : "", link(l)]))];
+  } });
+  baralho("card-programas", [el("h2", { class: "titulo-card" }, "Programas federais"),
+    el("p", { class: "sub-card" }, "2023 a 2026")],
+  [...naArea.map((p) => carta(p, nivel === "localidade" ? "nesta área" : "na zona")),
+    ...locais.map((p) => carta(p, m.nome)), ...gerais.map((p) => carta(p, null))]);
+}
 
+const OBRAS_POR_CARTA = 5;
+function cardObras(r) {
   const obras = obrasDe(r);
   const nomeB = (id) => estado.porId.get(id)?.nome ?? "sem localização";
-  const tb = el("tbody", {}, ...obras.map((o) => el("tr", {},
+  const linha = (o) => el("tr", {},
     el("td", {}, o.nome, el("br"), el("small", {}, `${o.tipo || "—"} · ${o.repassador || ""}`)),
     el("td", { class: "sit" }, o.situacao), el("td", { class: "nowrap" }, dataBR(o.inicio)),
     el("td", { class: "num nowrap" }, brl(o.valor_federal)), el("td", {}, o.bairro ? nomeB(o.bairro) : "sem localização"),
     el("td", { class: "consulta" }, ...(o.links ?? []).flatMap((l, i) => [i ? el("br") : null,
       el("a", { href: l.href, target: "_blank", rel: "noopener noreferrer",
-        ...(l.conferido === false ? { title: "Link montado pelo número do instrumento no Transferegov; não conferido individualmente (o Portal exige verificação humana)" } : {}) },
-        l.rotulo.startsWith("Ficha") ? "ObrasGov.br" : "Portal da Transparência"),
-      l.conferido === false ? el("small", { class: "nc" }, " (não conferido)") : null])))));
-  const total = obras.reduce((s, o) => s + o.valor_federal, 0);
-  const s = m.social;
-  card.replaceChildren(
-    el("h2", { class: "titulo-card" }, `Políticas públicas federais 2023–2026 — ${nomeAlvo}`),
-    el("div", { class: "totais-pol" },
-      el("span", {}, el("b", {}, obras.length), obras.length === 1 ? " obra federal iniciada em 2023–2026" : " obras federais iniciadas em 2023–2026"),
-      el("span", {}, el("b", {}, brl(total)), " previstos de fonte federal"),
-      el("span", {}, el("b", {}, fmtInt(s.pbf_familias)), " famílias no Bolsa Família (município, ago/2026)"),
-      el("span", {}, el("b", {}, fmtInd(s.pbf_valor_medio, " R$")), " benefício médio"),
-      el("span", {}, el("b", {}, fmt(s.bpc_por_mil_hab)), " BPC por mil hab.")),
-    el("div", { class: "pol-grade" },
-      el("div", {}, el("h3", {}, "O que o governo Lula planeja"), plano,
-        el("p", { class: "metodo" }, "Compromissos do Programa de Governo Lula 2026 (Coligação Brasil Pronto Pra Mais, 84 p.), escolhidos por regra: os indicadores em que a área está mais distante do Acre urbano (bairros) ou da zona rural do Acre (localidades rurais), com pelo menos 3 p.p. ou 7,5% em renda e adensamento. Nas localidades rurais entram os compromissos para o campo; nas aldeias, o compromisso com os povos indígenas. Os instrumentos de habitação do plano (Minha Casa Minha Vida com Compra Assistida e áreas da União nas cidades, Reforma Casa Brasil) são urbanos e não são indicados na zona rural. Segurança pública entra quando a taxa de mortes violentas do município (Sinesp/MJSP, média de 2023 a 2025) passa a do Acre em 10% ou mais; o dado só existe por município. Trechos entre aspas são citações do plano.")),
-      el("div", {}, el("h3", {}, "Programas federais de 2023 a 2026"),
-        el("div", { class: "tabela-rolagem" }, progs),
-        el("p", { class: "metodo" }, `Curadoria de políticas federais no Acre com fonte, só com evidência datada de 2023 a 2026. Programas de alcance estadual ou nacional valem para todas as áreas, exceto os exclusivos da zona urbana ou da zona rural, que só aparecem nela; o selo indica citação nominal da área ou do município. Links verificados em ${dataBR(meta.gerado_em)}: durante o período eleitoral, o portal do Governo do Acre e várias notícias do gov.br saíram do ar (Lei 9.504/1997); nesses casos o link aponta para a cópia arquivada no Internet Archive ou para fonte alternativa conferida, e “fonte não verificada” indica que nenhuma delas foi encontrada.`))),
-    el("h3", {}, `Obras e projetos federais ${nivel === "localidade" ? "georreferenciados nesta área" : nivel === "zona" ? "georreferenciados na zona" : "no município"}`),
-    obras.length ? el("div", { class: "tabela-rolagem obras" }, el("table", {},
+        ...(l.conferido === false ? { title: "Endereço padrão do convênio no Portal da Transparência; não aberto um a um" } : {}) },
+        l.rotulo.startsWith("Ficha") ? "ObrasGov.br" : "Portal da Transparência")])));
+  const cartas = [];
+  for (let i = 0; i < obras.length; i += OBRAS_POR_CARTA) {
+    const fatia = obras.slice(i, i + OBRAS_POR_CARTA);
+    cartas.push({ titulo: `obras ${i + 1}–${i + fatia.length}`, corpo: () => [el("div", { class: "tabela-larga" }, el("table", {},
       el("thead", {}, el("tr", {}, el("th", {}, "Projeto"), el("th", {}, "Situação"), el("th", {}, "Início"),
-        el("th", { class: "num" }, "Valor federal"), el("th", {}, "Bairro ou localidade"), el("th", {}, "Consultar"))), tb))
-      : el("p", { class: "vazio" }, "Nenhum projeto do ObrasGov.br iniciado em 2023–2026 localizado nesta área."),
-    el("p", { class: "metodo" }, "ObrasGov.br: só projetos com fonte de recurso federal iniciados entre 2023 e 2026 (data de início efetiva ou prevista), exceto cancelados. "
-      + "A localização é a geometria informada pelo órgão executor; pontos repetidos por dezenas de projetos (endereço do órgão) são descartados e o projeto fica no município indicado no nome. Valor = investimento previsto, não pago. "
-      + "Consultar: ficha do projeto nos dados abertos do ObrasGov.br (todas abertas e conferidas uma a uma) e, quando há instrumento no Transferegov, o convênio no Portal da Transparência. O Portal bloqueia acessos automatizados com verificação humana; os convênios marcados “não conferido” seguem o mesmo endereço padrão, mas não foram abertos um a um."),
-  );
+        el("th", { class: "num" }, "Valor federal"), el("th", {}, "Bairro ou localidade"), el("th", {}, "Consultar"))),
+      el("tbody", {}, ...fatia.map(linha))))] });
+  }
+  baralho("card-obras", [el("h2", { class: "titulo-card" }, "Obras federais"),
+    el("p", { class: "sub-card" }, `${r.nivel === "municipio" ? "No município" : `Em ${nomeDo(r)}`} · ${fmtInt(obras.length)} ${obras.length === 1 ? "obra" : "obras"} desde 2023`)],
+  cartas);
 }
 
 function rodape() {
   const m = estado.meta;
+  const NOTAS = [
+    ["Mapa", "Votos: 1º turno de 2026, atribuídos pelo local de votação, que pode diferir de onde o eleitor mora. Demais camadas: Censo 2022 (IBGE). Clique numa área do mapa para ler sobre ela."],
+    ["Leitura do território", "Escrita automaticamente, por regras fixas, a partir dos dados do painel (Censo 2022 do IBGE, votação do TSE em 2026, obras do ObrasGov.br, Sinesp/MJSP e Programa de Governo Lula 2026). “Cerca de 3 em cada 10” arredonda a porcentagem; os valores exatos estão nas fontes."],
+    ["Plano de governo", "Compromissos do Programa de Governo Lula 2026 (Coligação Brasil Pronto Pra Mais, 84 p.), escolhidos por regra: os indicadores em que a área está mais distante do Acre urbano (bairros) ou da zona rural do Acre (localidades rurais), com pelo menos 3 p.p. ou 7,5% em renda e adensamento. Nas localidades rurais entram os compromissos para o campo; nas aldeias, o compromisso com os povos indígenas. Os instrumentos de habitação do plano (Minha Casa Minha Vida com Compra Assistida e áreas da União nas cidades, Reforma Casa Brasil) são urbanos e não são indicados na zona rural. Segurança pública entra quando a taxa de mortes violentas do município (Sinesp/MJSP, média de 2023 a 2025) passa a do Acre em 10% ou mais; o dado só existe por município. Trechos entre aspas são citações do plano."],
+    ["Programas federais", `Curadoria de políticas federais no Acre com fonte, só com evidência datada de 2023 a 2026. Programas de alcance estadual ou nacional valem para todas as áreas, exceto os exclusivos da zona urbana ou da zona rural, que só aparecem nela; o selo indica citação nominal da área ou do município. Links verificados em ${dataBR(m.gerado_em)}: durante o período eleitoral, o portal do Governo do Acre e várias notícias do gov.br saíram do ar (Lei 9.504/1997); nesses casos o link aponta para a cópia arquivada no Internet Archive ou para fonte alternativa conferida, e “fonte não verificada” indica que nenhuma delas foi encontrada.`],
+    ["Obras federais", "ObrasGov.br: só projetos com fonte de recurso federal iniciados entre 2023 e 2026 (data de início efetiva ou prevista), exceto cancelados. A localização é a geometria informada pelo órgão executor; pontos repetidos por dezenas de projetos (endereço do órgão) são descartados e o projeto fica no município indicado no nome. Valor = investimento previsto, não pago. Consultar: ficha do projeto nos dados abertos do ObrasGov.br e, quando há instrumento no Transferegov, o convênio no Portal da Transparência; parte desses convênios segue o endereço padrão do Portal sem ter sido aberta um a um, porque o Portal bloqueia acessos automatizados."],
+    ["Áreas", "Toda área é uma união de setores censitários do IBGE. Zona urbana: nos 8 municípios em que o IBGE delimitou bairros no Censo 2022 usam-se os bairros oficiais; nos outros 14, inclusive Rio Branco e Cruzeiro do Sul, cada setor urbano recebe o bairro declarado no local de votação do TSE mais próximo. Bairros sem local de votação são agregados ao vizinho de maior fronteira. Zona rural: cada setor rural recebe a localidade (ramal, aldeia, seringal, comunidade, rodovia) do local de votação rural mais próximo, nomeada pelo aglomerado do IBGE ou pelo endereço do TSE."],
+  ];
   $("rodape").replaceChildren(
     el("p", {}, el("b", {}, "Minha Quebrada! "), `Dados gerados em ${dataBR(m.gerado_em)}. Painel estático, sem rastreamento.`),
-    el("p", {}, "Método: toda área é uma união de setores censitários do IBGE. Zona urbana: nos 8 municípios em que o IBGE delimitou bairros no Censo 2022 usam-se os bairros oficiais; nos outros 14, inclusive Rio Branco e Cruzeiro do Sul, cada setor urbano recebe o bairro declarado no local de votação do TSE mais próximo. Bairros sem local de votação são agregados ao vizinho de maior fronteira. Zona rural: cada setor rural recebe a localidade (ramal, aldeia, seringal, comunidade, rodovia) do local de votação rural mais próximo, nomeada pelo aglomerado do IBGE ou pelo endereço do TSE. Resultados eleitorais são atribuídos pelo local de votação, que pode diferir de onde o eleitor mora."),
+    el("details", { class: "notas" }, el("summary", {}, "Como os dados foram feitos"),
+      ...NOTAS.map(([t, x]) => el("p", {}, el("b", {}, `${t}. `), x))),
     el("p", {}, "Fontes: ", ...m.proveniencia.flatMap((p, i) => [i ? " · " : "", el("a", { href: p.url, target: "_blank", rel: "noopener noreferrer" }, p.fonte)])),
   );
 }

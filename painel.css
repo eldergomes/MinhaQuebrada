@@ -61,7 +61,13 @@ select {
 
 /* grade de 12 colunas: cards emparelhados lado a lado com a mesma altura */
 .grade { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 20px; padding-block: 24px 40px; align-items: stretch; }
-.c-mapa, .c-ia { grid-column: span 6; }
+.c-mapa, .c-ia, .c-plano, .c-programas { grid-column: span 6; }
+.c-obras { grid-column: 1 / -1; }
+/* alturas fixas no desktop: a troca de carta nao mexe no layout (nem redesenha o mapa) */
+@media (min-width: 961px) {
+  .c-mapa, .c-ia { height: 600px; }
+  .c-plano, .c-programas { height: 540px; }
+}
 .c-urna { grid-column: span 5; }
 .c-eleitor, .c-politicas { grid-column: 1 / -1; }
 .c-perfil, .c-hist { grid-column: span 5; }
@@ -154,8 +160,6 @@ summary { cursor: pointer; color: var(--azul); font-weight: 600; }
 .c-ia p { margin: 0 0 12px; font-size: 1.02rem; }
 .c-ia ul { margin: 0 0 14px; padding: 0; list-style: none; display: grid; gap: 6px; }
 .c-ia li { padding-left: 14px; border-left: 3px solid var(--amarelo); font-weight: 600; }
-.c-ia .aviso-ia { margin: auto 0 0; font-size: .8rem; color: var(--tinta-2); background: var(--fundo); padding: 8px 10px; }
-.aviso-ia b { color: var(--tinta); }
 
 /* socioeconomico */
 .grupos { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 32px; }
@@ -197,13 +201,17 @@ summary { cursor: pointer; color: var(--azul); font-weight: 600; }
 .resumo-hist li { background: var(--superficie); padding: 8px 10px; }
 .resumo-hist span { display: block; font-size: .76rem; color: var(--tinta-2); }
 .resumo-hist b { font-weight: 600; font-variant-numeric: tabular-nums; }
-.rodape-card { margin: 12px 0 0; padding-top: 10px; border-top: 1px solid var(--linha); font-size: .8rem; color: var(--tinta-2); }
-.rodape-card b { color: var(--tinta); font-weight: 600; }
+.rodape .notas { margin: 0 0 10px; }
+.rodape .notas summary { color: var(--amarelo); }
+.rodape .notas p { margin: 8px 0 0; color: #CFCAC2; }
+.rodape .notas b { color: #ECE8E2; }
 
 /* ===================== Minha Quebrada!: componentes novos ===================== */
 .c-urna { border-top-color: var(--vermelho); }
 .c-eleitor { border-top-color: var(--azul); }
-.c-politicas { border-top-color: var(--verde); }
+.c-plano { border-top-color: var(--vermelho); }
+.c-programas { border-top-color: var(--verde); }
+.c-obras { border-top-color: var(--tinta); }
 .filtros select#f-camada { min-width: 220px; width: 300px; }
 
 .obra { fill: var(--amarelo); stroke: var(--tinta); stroke-width: 1.2; cursor: pointer; }
@@ -319,3 +327,38 @@ td.consulta .nc { color: var(--tinta-2); }
 /* o card do mapa estica ate a altura da leitura; a area do mapa ocupa o espaco livre */
 .c-mapa { align-self: stretch; }
 .programas li span.selo-nv { display: inline-block; }
+
+/* ---- cartas: cada card mostra um item por vez, com setas para o anterior e o proximo ---- */
+.sub-card { margin: -6px 0 14px; color: var(--tinta-2); font-size: .92rem; }
+.carta { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+@media (min-width: 961px) { .c-ia .carta, .c-plano .carta, .c-programas .carta { flex-basis: 0; } }
+.carta > :first-child { margin-top: 0; }
+.carta h3 { font-size: 1.2rem; text-transform: none; letter-spacing: 0; margin: 0 0 10px; color: var(--vermelho); }
+.carta p { margin: 0 0 10px; }
+.carta .meta, .carta .fontes { font-size: .9rem; color: var(--tinta-2); }
+.carta .ter { font-weight: 600; border-left: 4px solid var(--vermelho); padding: 6px 10px; background: var(--fundo); }
+.carta .fontes a { color: var(--azul); }
+.kicker-carta { display: block; margin-bottom: 4px; font-family: var(--titulo); font-weight: 600; font-size: .82rem; letter-spacing: .06em; text-transform: uppercase; color: var(--azul); }
+.selos { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.selos:empty { display: none; }
+.local { display: inline-block; background: var(--amarelo); font-size: .72rem; font-weight: 600; padding: 0 6px; text-transform: uppercase; letter-spacing: .04em; }
+.selos .selo-nv { margin-left: 0; }
+.tabela-larga { overflow-x: auto; }
+.carta-nav { flex: none; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 10px;
+  margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--linha); }
+.seta { min-width: 0; max-width: 100%; display: inline-flex; align-items: center; gap: 2px; padding: 7px 12px; cursor: pointer;
+  background: var(--superficie); border: 1px solid var(--linha-forte); border-radius: 2px; color: var(--tinta);
+  font: 600 .92rem "Barlow", system-ui, sans-serif; }
+.seta .rot { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.seta:hover { background: var(--tinta); border-color: var(--tinta); color: #fff; }
+.seta.ant { justify-self: start; }
+.seta.prox { justify-self: end; }
+.seta.vazia { visibility: hidden; }
+.pos { font-family: var(--titulo); font-weight: 600; font-size: .85rem; letter-spacing: .04em; color: var(--tinta-2); white-space: nowrap; }
+.carta .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.carta .tiles div:last-child:nth-child(odd) { grid-column: 1 / -1; }
+.c-ia .carta p { font-size: 1.06rem; line-height: 1.6; }
+@media (max-width: 600px) {
+  .carta-nav { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); row-gap: 6px; }
+  .carta-nav .pos { grid-column: 1 / -1; grid-row: 1; justify-self: center; }
+}
