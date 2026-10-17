@@ -61,7 +61,7 @@ select {
 
 /* grade de 12 colunas: cards emparelhados lado a lado com a mesma altura */
 .grade { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 20px; padding-block: 24px 40px; align-items: stretch; }
-.c-mapa, .c-ia { grid-column: span 7; }
+.c-mapa, .c-ia { grid-column: span 6; }
 .c-urna { grid-column: span 5; }
 .c-eleitor, .c-politicas { grid-column: 1 / -1; }
 .c-perfil, .c-hist { grid-column: span 5; }
@@ -78,8 +78,15 @@ select {
 .titulo-card { font-size: 1.3rem; font-weight: 800; text-transform: uppercase; letter-spacing: .02em; margin-bottom: 12px; }
 
 /* mapa */
-.mapa-area { position: relative; flex: 1; display: flex; align-items: center; }
-.mapa-area svg { width: 100%; height: auto; display: block; }
+.mapa-area { position: relative; flex: 1; min-height: 360px; }
+.mapa-area .vistas { position: absolute; inset: 0; display: flex; flex-direction: column; }
+.mapa-area .vistas svg { width: 100%; flex: 1 1 0; min-height: 0; display: block; }
+.mapa-area .vistas svg + .rotulo-detalhe + svg, .mapa-area .vistas svg.detalhe { border: 1px solid var(--linha); }
+.mapa-area .vistas svg:first-child:not(:only-child) { flex: none; }
+.rotulo-detalhe { margin: 8px 0 4px; font-family: var(--titulo); font-weight: 600; font-size: .8rem; letter-spacing: .06em; text-transform: uppercase; color: var(--tinta-2); flex: none; }
+.mapa-area.natural { min-height: 0; }
+.mapa-area.natural .vistas { position: static; }
+.mapa-area.natural .vistas svg { flex: none; height: auto; }
 .mun { stroke: var(--contorno); stroke-width: .4; cursor: pointer; }
 .mun:hover { stroke: var(--sel); stroke-width: 1.2; }
 .mun.sel { stroke: var(--sel); stroke-width: 2.4; }
@@ -299,3 +306,16 @@ td.consulta a { color: var(--azul); }
 .pilha span { color: #fff; font-size: .74rem; font-weight: 600; padding: 0 6px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .gv-dif { font-size: .76rem; color: var(--tinta-2); }
 td.consulta .nc { color: var(--tinta-2); }
+
+/* leitura do territorio: secoes curtas */
+.titulo-ia small { font-family: "Barlow", sans-serif; font-size: .95rem; font-weight: 600; color: var(--tinta-2); text-transform: none; }
+.secao-leitura { padding: 12px 0; border-top: 1px solid var(--linha); }
+.secao-leitura:first-child { border-top: 0; padding-top: 0; }
+.secao-leitura h3 { margin: 0 0 6px; color: var(--vermelho); font-size: .95rem; }
+.c-ia .texto .secao-leitura p { margin: 0 0 6px; font-size: 1rem; }
+.c-ia .secao-leitura ul { margin: 4px 0 0; gap: 8px; }
+.c-ia .secao-leitura li { font-weight: 400; padding-left: 12px; }
+.c-ia .secao-leitura li b { font-weight: 600; }
+/* o card do mapa estica ate a altura da leitura; a area do mapa ocupa o espaco livre */
+.c-mapa { align-self: stretch; }
+.programas li span.selo-nv { display: inline-block; }

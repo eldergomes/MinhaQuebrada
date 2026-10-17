@@ -769,7 +769,8 @@ def compromissos(ind, ref, rural, tipo="Bairro"):
     por_id = {c["id"]: c for c in PLANO}
     return [{"id": cid, "motivo": mot, "tema": por_id[cid]["tema"], "pagina": por_id[cid]["pagina"],
              "promessa": por_id[cid]["promessa"], "meta": por_id[cid]["meta"], "ref_rot": ref["_rot"],
-             "territorio": por_id[cid]["territorio"](ind["n"], ind, ref)} for cid, mot in escolhidos]
+             "territorio": por_id[cid]["territorio"](ind["n"], ind, ref),
+             "significa": PLANO_DIDATICO[cid][1](ind["n"], ind)} for cid, mot in escolhidos]
 
 
 # ------------------------------------------------------------------ textos (insights)
@@ -818,122 +819,233 @@ ROT_CAT = {"Mulheres": "mulheres", "Homens": "homens", "16–24": "jovens de 16 
            "Superior completo": "eleitores com ensino superior"}
 
 
-def texto_unidade(u, mun):
-    nome, ind, el = u["nome"], u["censo"], u["eleicao"]
-    zona = u["tipo"] == "Zona"
-    do = "da zona" if zona else "da localidade" if u["rural"] else "do bairro"
-    mi, me = mun["censo"], mun["eleicao"]
-    par = []
-    p1 = (f"{nome} tem {fmt(ind['pop'], 0)} moradores ({fmt(pct(ind['pop'], mi['pop']), 1)}% de {mun['nome']}) "
-          f"em {fmt(ind['domicilios'], 0)} domicílios.")
+# ---- textos didaticos da "Leitura do territorio": secoes curtas, linguagem simples ----
+def proporcao(p):
+    """52,3 -> 'cerca de 5 em cada 10'; 3,1 -> '3 em cada 100'."""
+    if p is None:
+        return "—"
+    if p >= 95:
+        return "mais de 9 em cada 10"
+    if p >= 9.5:
+        return f"cerca de {round(p / 10)} em cada 10"
+    return "menos de 1 em cada 100" if p < 0.5 else f"{round(p)} em cada 100"
+
+
+def de_cada_10(p):
+    return proporcao(p).replace("cerca de ", "")
+
+
+# o que cada compromisso do plano preve, em uma frase, e o que significa aqui
+PLANO_DIDATICO = {
+    "agua": ("levar água tratada e esgoto a todos, começando pelas periferias",
+             lambda n, i: f"chegar a cerca de {_n(n['dom_sem_agua'])} casas que ainda não recebem água da rede geral"),
+    "saneamento": ("ligar todas as casas a um esgoto adequado, com prioridade para as periferias",
+                   lambda n, i: f"ligar cerca de {_n(n['dom_sem_esgoto'])} casas que hoje não têm esgoto adequado"),
+    "lixo": ("apoiar a coleta e o tratamento do lixo",
+             lambda n, i: f"atender cerca de {_n(n['dom_sem_lixo'])} casas que não têm o lixo coletado"),
+    "drenagem": ("fazer obras de drenagem e de proteção contra enchentes nas áreas de risco",
+                 lambda n, i: f"levar drenagem às ruas onde vivem cerca de {_n(n['mor_sem_bueiro'])} moradores sem bueiro"),
+    "periferia_viva": ("urbanizar periferias com o Periferia Viva, com novas seleções de obras",
+                       lambda n, i: f"pavimentar e urbanizar as ruas onde vivem cerca de {_n(n['mor_sem_pavimento'])} moradores"),
+    "espaco_publico": ("requalificar praças e espaços públicos e levar serviços às periferias, para enfrentar o crime",
+                       lambda n, i: f"iluminar as ruas onde vivem cerca de {_n(n['mor_sem_iluminacao'])} moradores"),
+    "moradia": ("ampliar o Minha Casa Minha Vida, com foco em quem ganha menos",
+                lambda n, i: f"atender famílias de renda baixa como as daqui, onde quem sustenta a casa ganha em média R$ {_n(int(i['renda_resp']))} por mês"),
+    "adensamento": ("ampliar o acesso à moradia e diminuir as casas superlotadas",
+                    lambda n, i: f"aliviar casas que têm, em média, {fmt(i['mor_dom'], 1)} moradores"),
+    "banheiro": ("ampliar o Reforma Casa Brasil, que ajuda a reformar e melhorar moradias",
+                 lambda n, i: f"atender {_n(n['dom_sem_banheiro'])} casas que não têm banheiro"),
+    "alfabetizacao": ("enfrentar o analfabetismo de jovens e adultos",
+                      lambda n, i: f"alcançar {_n(n['nao_alfabetizados'])} pessoas com 15 anos ou mais que ainda não sabem ler e escrever"),
+    "creche": ("construir mais creches e ampliar a escola em tempo integral",
+               lambda n, i: f"beneficiar {_n(n['criancas_0_4'])} crianças de até 4 anos e {_n(n['criancas_0_14'])} de até 14 anos"),
+    "juventude": ("manter o Pé-de-Meia e abrir institutos federais nas periferias",
+                  lambda n, i: f"alcançar {_n(n['jovens_15_19'])} jovens de 15 a 19 anos"),
+    "idosos": ("manter a Farmácia Popular 100% gratuita e levar atendimento em casa aos idosos",
+               lambda n, i: f"atender {_n(n['idosos'])} pessoas com 60 anos ou mais"),
+    "cuidados": ("criar Cuidotecas, lavanderias públicas e cozinhas solidárias",
+                 lambda n, i: f"apoiar famílias que vivem com renda média de R$ {_n(int(i['renda_resp']))} por mês"),
+    "indigenas": ("proteger as terras indígenas e garantir saúde e educação indígenas",
+                  lambda n, i: f"atender {_n(n['indigenas'])} indígenas que moram aqui"),
+    "rural": ("levar água potável e energia (Luz para Todos) a todo o campo",
+              lambda n, i: f"chegar a {_n(n['dom_sem_agua'])} casas sem água da rede e às famílias ainda sem energia"),
+    "agricultura": ("dar mais crédito à agricultura familiar e comprar alimentos dela para a merenda escolar",
+                    lambda n, i: f"apoiar os {_n(i['pop'])} moradores da área, em grande parte agricultores e extrativistas"),
+    "conectividade": ("levar internet de fibra e 5G ao campo e às periferias do Norte",
+                      lambda n, i: f"conectar os {_n(i['pop'])} moradores da área"),
+}
+
+# como contar cada carencia em linguagem simples: (titulo, frase com a proporcao)
+CARENCIA = {
+    "agua_rede_pct": ("Água encanada", lambda v: f"{proporcao(v)} casas recebem água da rede geral"),
+    "esgoto_adequado_pct": ("Esgoto", lambda v: f"{proporcao(v)} casas têm esgoto adequado"),
+    "lixo_coletado_pct": ("Coleta de lixo", lambda v: f"{proporcao(v)} casas têm o lixo coletado"),
+    "bueiro_pct": ("Drenagem", lambda v: f"{proporcao(v)} moradores vivem em rua com bueiro"),
+    "pavimentacao_pct": ("Rua asfaltada", lambda v: f"{proporcao(v)} moradores vivem em rua pavimentada"),
+    "iluminacao_pct": ("Iluminação", lambda v: f"{proporcao(v)} moradores vivem em rua com iluminação pública"),
+    "alfabetizacao_pct": ("Leitura e escrita", lambda v: f"{proporcao(100 - v)} pessoas com 15 anos ou mais não sabem ler e escrever"),
+    "sem_banheiro_pct": ("Banheiro", lambda v: f"{proporcao(v)} casas não têm banheiro"),
+    "renda_resp": ("Renda", lambda v: f"quem sustenta a casa ganha em média R$ {_n(int(v))} por mês"),
+    "mor_dom": ("Casas cheias", lambda v: f"vivem em média {fmt(v, 1)} pessoas por casa"),
+    "criancas_pct": ("Muitas crianças", lambda v: f"{proporcao(v)} moradores têm até 14 anos"),
+    "jovens_pct": ("Muitos jovens", lambda v: f"{proporcao(v)} moradores têm de 15 a 29 anos"),
+    "idosos_pct": ("Muitos idosos", lambda v: f"{proporcao(v)} moradores têm 60 anos ou mais"),
+    "indigenas_pct": ("População indígena", lambda v: f"{proporcao(v)} moradores são indígenas"),
+}
+
+
+def _ref_frase(k, ref, rot):
+    v = ref.get(k)
+    if v is None:
+        return ""
+    if k == "renda_resp":
+        return f" (média {rot.replace('no ', 'do ').replace('na ', 'da ')}: R$ {_n(int(v))})"
+    if k == "mor_dom":
+        return f" ({fmt(v, 1)} {rot})"
+    if k == "alfabetizacao_pct":
+        return f" ({de_cada_10(100 - v)} {rot})"
+    return f" ({de_cada_10(v)} {rot})"
+
+
+def secao_quem_mora(u, mun, zona_nome=None):
+    ind, mi = u["censo"], mun["censo"]
+    nome = u["nome"] if not zona_nome else zona_nome
+    t = [f"{nome} tem {fmt(ind['pop'], 0)} moradores, cerca de {fmt(pct(ind['pop'], mi['pop']), 0)}% da população "
+         f"de {mun['nome']}, vivendo em {fmt(ind['domicilios'], 0)} casas."]
     if ind.get("renda_resp") and mi.get("renda_resp"):
-        rel = "acima" if ind["renda_resp"] > mi["renda_resp"] else "abaixo"
-        p1 += (f" A renda média do responsável pelo domicílio é de R$ {fmt(ind['renda_resp'], 0)}, {rel} da média "
-               f"municipal (R$ {fmt(mi['renda_resp'], 0)}).")
-    if ind.get("pretos_pardos_pct") is not None:
-        p1 += f" Pretos e pardos são {fmt(ind['pretos_pardos_pct'])}% da população"
-        p1 += f" e indígenas, {fmt(ind['indigenas_pct'])}%." if (ind.get("indigenas_pct") or 0) >= 3 else "."
-    car = [c for c in u["plano"] if c["motivo"]]
-    if car:
-        itens = [f"{ROT[c['motivo']['k']][0].lower()} ({fmt_ind(c['motivo']['k'], c['motivo']['valor'])}, contra "
-                 f"{fmt_ind(c['motivo']['k'], c['motivo']['ref'])} {c['ref_rot']})" for c in car]
-        p1 += " As maiores carências relativas estão em " + "; ".join(itens) + "."
-    par.append(p1)
+        dif = ind["renda_resp"] / mi["renda_resp"] - 1
+        comp = ("perto da média da cidade" if abs(dif) < 0.1 else
+                f"{'acima' if dif > 0 else 'abaixo'} da média da cidade (R$ {_n(int(mi['renda_resp']))})")
+        t.append(f"Quem sustenta a casa ganha, em média, R$ {_n(int(ind['renda_resp']))} por mês — {comp}.")
+    if (ind.get("indigenas_pct") or 0) >= 20:
+        t.append(f"É uma área indígena: {proporcao(ind['indigenas_pct'])} moradores se declaram indígenas.")
+    elif (ind.get("pretos_pardos_pct") or 0) >= 50:
+        t.append(f"A maior parte da população é negra: {proporcao(ind['pretos_pardos_pct'])} moradores se declaram pretos ou pardos.")
+    return {"t": "Quem mora aqui", "p": [" ".join(t)]}
 
-    if el and el["validos"]:
-        lado = "Lula" if el["lula"] > el["flavio"] else "Flávio Bolsonaro"
-        dif = (el["lula_pct"] or 0) - (me["lula_pct"] or 0)
-        p2 = (f"No 1º turno de 2026, {'a seção' if el['secoes'] == 1 else 'as ' + str(el['secoes']) + ' seções'} "
-              f"{'do local' if el['locais'] == 1 else 'dos ' + str(el['locais']) + ' locais'} de votação {do} deram "
-              f"{fmt(el['lula_pct'])}% dos votos nominais a Lula ({fmt(el['lula'], 0)} votos) e {fmt(el['flavio_pct'])}% "
-              f"a Flávio Bolsonaro ({fmt(el['flavio'], 0)}) — vitória de {lado}. Lula tem {fmt(abs(dif))} p.p. "
-              f"{'a mais' if dif >= 0 else 'a menos'} do que no conjunto de {mun['nome']} ({fmt(me['lula_pct'])}%). "
-              f"A abstenção foi de {fmt(el['abstencao_pct'])}%.")
-        g = maior_gap(u["perfil"], el["lula_pct"]) if el["secoes"] >= 3 else []
-        if g:
-            pl, pf = max(g), min(g)
-            vl = el["lula_pct"] + pl[0]
-            vf = el["lula_pct"] + pf[0]
-            if pl[0] >= 1:
-                p2 += (f" Pela estimativa por seção, Lula vai melhor entre {ROT_CAT[pl[1]]} (cerca de {fmt(vl)}%, "
-                       f"{fmt(pl[0])} p.p. acima do total)")
-                p2 += (f" e pior entre {ROT_CAT[pf[1]]} (cerca de {fmt(vf)}%)." if pf[0] <= -1 else ".")
-        elif el["secoes"] < 3:
-            p2 += " Com menos de três seções, o perfil ecológico do eleitor de cada candidato não é informativo."
-        par.append(p2)
+
+def secao_falta(u, ref):
+    itens = []
+    for c in u["plano"]:
+        k = (c.get("motivo") or {}).get("k")
+        if k in CARENCIA:
+            tit, frase = CARENCIA[k]
+            itens.append(f"{tit}: {frase(c['motivo']['valor'])}{_ref_frase(k, ref, ref['_rot'])}.")
+    if not itens:
+        return None
+    return {"t": "O que mais falta", "intro": "Comparando com o restante do Acre, os pontos mais fracos são:", "itens": itens}
+
+
+def secao_voto(u, mun, onde):
+    el, me = u["eleicao"], mun["eleicao"]
+    if not el or not el["validos"]:
+        return None
+    vence, perde = (("Lula", "Flávio Bolsonaro") if el["lula"] > el["flavio"] else ("Flávio Bolsonaro", "Lula"))
+    pv = max(el["lula_pct"], el["flavio_pct"]); pp = min(el["lula_pct"], el["flavio_pct"])
+    t = [f"No 1º turno de 2026, {vence} venceu {onde} com {fmt(pv)}% dos votos válidos; {perde} teve {fmt(pp)}%. "
+         f"Na prática, de cada 10 eleitores que escolheram um candidato, {round(pv / 10)} votaram em {vence.split()[0]} "
+         f"e {round(pp / 10)} em {perde.split()[0]}."]
+    if u is not mun and me:
+        dif = el["lula_pct"] - me["lula_pct"]
+        t.append("Lula foi " + ("praticamente igual ao resto da cidade" if abs(dif) < 1 else
+                 f"{fmt(abs(dif))} pontos {'melhor' if dif > 0 else 'pior'} do que no conjunto de {mun['nome']} ({fmt(me['lula_pct'])}%)") + ".")
+    g = maior_gap(u["perfil"], el["lula_pct"]) if u.get("perfil") and el["secoes"] >= 3 else []
+    if g and max(g)[0] >= 1:
+        t.append(f"Lula foi um pouco melhor entre {ROT_CAT[max(g)[1]]}.")
+    if el.get("abstencao_pct") and el["abstencao_pct"] >= 15:
+        t.append(f"{de_cada_10(el['abstencao_pct']).capitalize()} eleitores não foram votar.")
+    return {"t": "Como votou em 2026", "p": [" ".join(t)]}
+
+
+def secao_feito(u, mun, onde, obras):
+    t = []
+    if obras:
+        tot = sum(o["valor_federal"] for o in obras)
+        maior = max(obras, key=lambda o: o["valor_federal"])
+        t.append(f"Desde 2023, {len(obras)} {'obra começou' if len(obras) == 1 else 'obras começaram'} {onde} com "
+                 f"dinheiro federal, somando {brl(tot)} previstos. A maior é “{titulo(maior['nome'][:90])}” ({brl(maior['valor_federal'])}).")
     else:
-        par.append("Não há local de votação dentro deste bairro: seus eleitores votam em seções de bairros vizinhos, "
-                   "por isso o resultado eleitoral não é atribuído a ele.")
+        t.append(f"Nenhuma obra federal começada desde 2023 está registrada {onde}.")
+    s = mun.get("social") or {}
+    if s.get("pbf_familias"):
+        t.append(f"Os moradores também são alcançados pelos programas que valem para toda a cidade, como o Bolsa Família, "
+                 f"que atende {_n(int(s['pbf_familias']))} famílias em {mun['nome']} (benefício médio de R$ {_n(int(s['pbf_valor_medio']))}).")
+    if u.get("politicas"):
+        t.append("Ações citadas por nome para este lugar: " + "; ".join(u["politicas"]) + ".")
+    return {"t": "O que o governo federal já fez (2023–2026)", "p": [" ".join(t)]}
 
-    ob = u["obras"]
-    if ob:
-        tot = sum(o["valor_federal"] for o in ob)
-        top = sorted(ob, key=lambda o: -o["valor_federal"])[:2]
-        p3 = (f"O ObrasGov.br registra {len(ob)} projeto(s) com recursos federais georreferenciado(s) "
-              f"{do.replace('do ', 'no ').replace('da ', 'na ')} "
-              f"({brl(tot)} previstos), com destaque para " +
-              " e ".join(f"“{titulo(o['nome'][:90])}” ({brl(o['valor_federal'])}, {o['situacao'].lower()})" for o in top) + ".")
-    else:
-        onde = {"do bairro": "do bairro; ele é alcançado", "da localidade": "da localidade; ela é alcançada",
-                "da zona": "da zona; ela é alcançada"}[do]
-        p3 = (f"Nenhum projeto federal do ObrasGov.br está georreferenciado dentro {onde} pelos "
-              "programas de alcance municipal (transferência de renda, saúde, educação) listados abaixo.")
-    if u["politicas"]:
-        p3 += f" Políticas citadas nominalmente {'para o bairro' if do == 'do bairro' else 'para a localidade'}: " + "; ".join(u["politicas"]) + "."
-    par.append(p3)
 
-    if u["plano"]:
-        par.append(f"O que o Programa de Governo de Lula 2026 promete para as {len(u['plano'])} principais carências "
-                   f"{do.replace('da ', 'desta ').replace('do ', 'deste ')}:")
-        for c in u["plano"]:
-            t = c["territorio"]  # comeca com numero ou minuscula
-            par.append(f"{c['tema']} (p. {c['pagina']}). {c['promessa']} {c['meta']} "
-                       f"Em {nome}, {t}")
-    return par
+def secao_plano(itens_plano, onde):
+    if not itens_plano:
+        return None
+    itens = []
+    for c in itens_plano:
+        curta, signif = PLANO_DIDATICO[c["id"]]
+        frase = f"{c['tema']} — o plano prevê {curta} (p. {c['pagina']})."
+        if c.get("frase_local"):
+            frase += f" {c['frase_local']}"
+        elif c.get("significa"):
+            frase += f" {onde.capitalize()}, isso significa {c['significa']}."
+        itens.append(frase)
+    return {"t": "O que o governo Lula planeja", "itens": itens}
+
+
+def texto_unidade(u, mun):
+    """Leitura de um bairro, localidade rural ou zona, em secoes curtas e didaticas."""
+    zona = u["tipo"] == "Zona"
+    onde = (f"na {u['nome'].lower()} de {mun['nome']}" if zona else
+            f"em {u['nome']}")
+    ref = u["_ref"]
+    obras = u["obras"]
+    secoes = [secao_quem_mora(u, mun, f"A {u['nome'].lower()} de {mun['nome']}" if zona else None),
+              secao_falta(u, ref), secao_voto(u, mun, "aqui"),
+              secao_feito(u, mun, "aqui", obras), secao_plano(u["plano"], "aqui")]
+    return [s for s in secoes if s]
 
 
 def texto_municipio(m, unidades_m, obras_m):
-    par = []
-    el = m["eleicao"]
     urb = [u for u in unidades_m if not u["rural"]]
     rur = [u for u in unidades_m if u["rural"]]
     zu, zr = m["zonas"]["urbana"], m["zonas"]["rural"]
-    p1 = (f"{m['nome']} tem {fmt(m['censo']['pop'], 0)} moradores no Censo 2022: {fmt(zu['censo']['pop'], 0) if zu else 0} na zona "
-          f"urbana, em {len(urb)} {'bairro' if len(urb) == 1 else 'bairros'}, e {fmt(zr['censo']['pop'], 0) if zr else 0} na zona rural, "
-          f"em {len(rur)} {'localidade' if len(rur) == 1 else 'localidades'} (ramais, aldeias, seringais, comunidades).")
-    if el:
-        p1 += (f" No 1º turno de 2026, Lula teve {fmt(el['lula_pct'])}% dos votos nominais e Flávio Bolsonaro "
-               f"{fmt(el['flavio_pct'])}%")
-        if zu and zr and zu["eleicao"] and zr["eleicao"]:
-            p1 += (f" (zona urbana: {fmt(zu['eleicao']['lula_pct'])}% × {fmt(zu['eleicao']['flavio_pct'])}%; "
-                   f"zona rural: {fmt(zr['eleicao']['lula_pct'])}% × {fmt(zr['eleicao']['flavio_pct'])}%)")
-        p1 += "."
-    com = [u for u in unidades_m if u["eleicao"] and u["eleicao"]["validos"] >= 200]
-    if len(com) >= 3:
-        mel = max(com, key=lambda u: u["eleicao"]["lula_pct"])
-        pio = min(com, key=lambda u: u["eleicao"]["lula_pct"])
-        p1 += (f" O melhor resultado de Lula está em {mel['nome']} ({fmt(mel['eleicao']['lula_pct'])}% dos nominais) "
-               f"e o pior, em {pio['nome']} ({fmt(pio['eleicao']['lula_pct'])}%).")
-    par.append(p1)
+    quem = (f"{m['nome']} tem {fmt(m['censo']['pop'], 0)} moradores. {fmt(zu['censo']['pop'], 0) if zu else 0} vivem na cidade, "
+            f"em {len(urb)} {'bairro' if len(urb) == 1 else 'bairros'}, e {fmt(zr['censo']['pop'], 0) if zr else 0} na zona rural, "
+            f"espalhados por {len(rur)} {'localidade' if len(rur) == 1 else 'localidades'} — ramais, aldeias, seringais e comunidades.")
+    if m["censo"].get("renda_resp"):
+        quem += f" Quem sustenta a casa ganha, em média, R$ {_n(int(m['censo']['renda_resp']))} por mês."
+    secoes = [{"t": "Quem mora aqui", "p": [quem]}]
+    # onde falta mais: bairros e localidades com menos esgoto e agua
+    piores = sorted([u for u in urb if u["censo"]["pop"] >= 300 and u["censo"].get("esgoto_adequado_pct") is not None],
+                    key=lambda u: u["censo"]["esgoto_adequado_pct"])[:3]
+    if len(urb) >= 3 and piores:
+        secoes.append({"t": "Onde falta mais", "intro": "Na cidade, os bairros com menos esgoto adequado são:",
+                       "itens": [f"{u['nome']}: {proporcao(u['censo']['esgoto_adequado_pct'])} casas têm esgoto adequado." for u in piores]})
+    v = secao_voto(m, m, "no município")
+    if v:
+        com = [u for u in unidades_m if u["eleicao"] and u["eleicao"]["validos"] >= 200]
+        if len(com) >= 3:
+            mel = max(com, key=lambda u: u["eleicao"]["lula_pct"])
+            pio = min(com, key=lambda u: u["eleicao"]["lula_pct"])
+            v["p"][0] += (f" O melhor lugar para Lula foi {mel['nome']} ({fmt(mel['eleicao']['lula_pct'])}%) e o pior, "
+                          f"{pio['nome']} ({fmt(pio['eleicao']['lula_pct'])}%).")
+        secoes.append(v)
+    feito = secao_feito(m, m, "no município", obras_m)
     if obras_m:
-        tot = sum(o["valor_federal"] for o in obras_m)
-        loc = [o for o in obras_m if o["bairro"]]
         por_tipo = Counter()
         for o in obras_m:
             por_tipo[o["tipo"] or "Outros"] += o["valor_federal"]
-        top = ", ".join(f"{t.lower()} ({brl(v)})" for t, v in por_tipo.most_common(3))
-        p2 = (f"O ObrasGov.br lista {len(obras_m)} projetos com recursos federais iniciados entre 2023 e 2026 "
-              f"({brl(tot)} previstos de fonte federal); {len(loc)} têm localização no mapa. Os maiores volumes "
-              f"estão em {top}.")
-        maior = max(obras_m, key=lambda o: o["valor_federal"])
-        p2 += f" O maior projeto é “{titulo(maior['nome'][:100])}” ({brl(maior['valor_federal'])})."
-        par.append(p2)
-    piores = sorted([u for u in urb if u["censo"]["pop"] >= 300 and u["censo"].get("esgoto_adequado_pct") is not None],
-                    key=lambda u: u["censo"]["esgoto_adequado_pct"])[:3]
-    if piores:
-        par.append("Bairros com menor acesso a esgoto adequado (prioridade do compromisso de saneamento do plano, p. 46): "
-                   + ", ".join(f"{u['nome']} ({fmt(u['censo']['esgoto_adequado_pct'])}%)" for u in piores) + ".")
-    return par
+        feito["p"][0] += " O dinheiro foi sobretudo para " + ", ".join(
+            f"{t.lower()} ({brl(x)})" for t, x in por_tipo.most_common(3)) + "."
+    secoes.append(feito)
+    cont = Counter()
+    for u in unidades_m:
+        for c in u["plano"]:
+            cont[c["id"]] += u["censo"]["pop"]
+    por_id = {c["id"]: c for c in PLANO}
+    top = [{"id": i, "tema": por_id[i]["tema"], "pagina": por_id[i]["pagina"],
+            "frase_local": f"É uma das maiores carências em bairros e localidades onde vivem {_n(p)} pessoas."}
+           for i, p in cont.most_common(3)]
+    secoes.append(secao_plano(top, "no município"))
+    return [s for s in secoes if s]
 
 
 # ------------------------------------------------------------------ geometria
@@ -1037,6 +1149,7 @@ def main():
             u["obras"] = [o for o in obras_m if o["bairro"] == uid]
             u["politicas"] = [p["politica"] for p in politicas if uid in p["bairros"]]
             u["plano"] = compromissos(u["censo"], ref_rural if u["rural"] else ref_estado, u["rural"], u["tipo"])
+            u["_ref"] = ref_rural if u["rural"] else ref_estado
             unidades_m.append(u)
             feats.append((uid, shapely.union_all([setores[c]["geom"] for c in sets]), u["rural"]))
         # agregados por zona (filtro "Zona urbana" / "Zona rural" sem localidade escolhida)
@@ -1056,10 +1169,12 @@ def main():
             z["obras"] = [o for o in obras_m if o["bairro"] in {u["id"] for u in membros}]
             z["politicas"] = []
             z["plano"] = compromissos(z["censo"], ref_rural if rural else ref_estado, rural, "Zona")
+            z["_ref"] = ref_rural if rural else ref_estado
             m["zonas"][zona] = z
         for u in [*unidades_m, *filter(None, m["zonas"].values())]:
             u["texto"] = texto_unidade(u, m)
             u["obras"] = [o["id"] for o in u["obras"]]
+            u.pop("_ref", None)
         m["texto"] = texto_municipio(m, unidades_m, obras_m)
         m["bairros"] = sorted(unidades_m, key=lambda u: (u["rural"], -u["censo"]["pop"]))
         m["obras"] = sorted(obras_m, key=lambda o: -o["valor_federal"])
