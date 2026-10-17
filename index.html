@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- GitHub Pages nao permite cabecalhos HTTP customizados: a CSP vai por meta. -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'">
+  <meta name="referrer" content="no-referrer">
+  <!-- PRE-LANCAMENTO: remover a linha abaixo quando o painel for divulgado -->
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="color-scheme" content="light">
+  <meta name="description" content="Minha Quebrada!: o que o Governo Lula fez e o que pode fazer por você no seu bairro — bairros e localidades rurais do Acre com Censo 2022, votos de 2026 e políticas federais de 2023 a 2026.">
+  <title>Minha Quebrada! · Acre</title>
+  <link rel="preload" href="fonts/barlow-condensed-800.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="fonts/barlow-400.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="painel.css">
+  <script type="module" src="painel.js"></script>
+</head>
+<body>
+  <a class="pular" href="#conteudo">Pular para o conteúdo</a>
+
+  <p class="banner" role="note">
+    Clique aqui para acessar o
+    <a href="https://comitepopular.com.br" target="_blank" rel="noopener noreferrer">Comitê Popular de Luta</a>!
+    Sofreu censura na internet? Faça sua manifestação
+    <a href="https://censuradigital.lula.com.br/" target="_blank" rel="noopener noreferrer">aqui</a>!
+  </p>
+
+  <header class="cabecalho">
+    <div class="wrap cabecalho-linha">
+      <div class="filete" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+      <div class="marca">
+        <span class="kicker">Acre · Políticas públicas federais 2023–2026 · Bairro a bairro</span>
+        <h1>Minha <em>Quebrada!</em></h1>
+        <p class="subtitulo" id="subtitulo">O que o Governo Lula fez e o que pode fazer por você no seu bairro!</p>
+      </div>
+    </div>
+    <div class="faixa-filtros">
+      <div class="wrap filtros" role="search" aria-label="Filtros">
+        <label>Município <select id="f-mun"></select></label>
+        <label>Zona <select id="f-zona"></select></label>
+        <label class="largo" id="rot-bairro">Bairro <select id="f-bairro"></select></label>
+        <label>Mapa <select id="f-camada"></select></label>
+      </div>
+    </div>
+  </header>
+
+  <main id="conteudo" class="wrap grade">
+    <section class="card c-mapa" aria-labelledby="titulo-mapa">
+      <h2 class="titulo-card" id="titulo-mapa">Bairros</h2>
+      <div class="mapa-area" id="mapa"></div>
+      <div class="legenda" id="legenda"></div>
+      <p class="rodape-card" id="mapa-nota"></p>
+    </section>
+    <section class="card c-perfil" id="painel-lateral" aria-live="polite"></section>
+    <section class="card c-ia" id="card-texto" aria-live="polite"></section>
+    <section class="card c-urna" id="card-urna"></section>
+    <section class="card c-eleitor" id="card-eleitor"></section>
+    <section class="card c-socio" id="card-socio"></section>
+    <section class="card c-politicas" id="card-politicas"></section>
+  </main>
+
+  <footer class="rodape">
+    <div class="wrap" id="rodape"></div>
+  </footer>
+  <noscript>Este painel precisa de JavaScript.</noscript>
+</body>
+</html>
